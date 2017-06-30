@@ -6,4 +6,4 @@ All my Kaggle Projects
 
 2. Titanic: Machine Learning from Disaster - Predict survival on the Titanic
 
-3. [ABANDONED] Olympic Sports and Medals(1896-2014) - Which countries and athletes have won the most medals at the Olympic games?
+3. [DROPPED] Olympic Sports and Medals(1896-2014) - Which countries and athletes have won the most medals at the Olympic games?
