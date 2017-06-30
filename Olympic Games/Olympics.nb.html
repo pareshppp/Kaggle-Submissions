@@ -176,33 +176,110 @@ $(document).ready(function () {
 <p>Which Olympic athletes have the most gold medals? Which countries are they from and how has it changed over time?</p>
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShyZWFkcilcbmxpYnJhcnkoZHBseXIpXG5saWJyYXJ5KGdncGxvdDIpXG5zdW1tZXIgPC0gcmVhZC5jc3YoJ3N1bW1lci5jc3YnKVxud2ludGVyIDwtIHJlYWQuY3N2KCd3aW50ZXIuY3N2JylcbmRpY3Rpb25hcnkgPC0gcmVhZC5jc3YoJ2RpY3Rpb25hcnkuY3N2JylcbmBgYCJ9 -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShyZWFkcilcbmxpYnJhcnkoZHBseXIpXG5gYGAifQ== -->
 <pre class="r"><code>library(readr)
-library(dplyr)
-library(ggplot2)
+library(dplyr)</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiXG5BdHRhY2hpbmcgcGFja2FnZTog4oCYZHBseXLigJlcblxuVGhlIGZvbGxvd2luZyBvYmplY3RzIGFyZSBtYXNrZWQgZnJvbSDigJhwYWNrYWdlOnN0YXRz4oCZOlxuXG4gICAgZmlsdGVyLCBsYWdcblxuVGhlIGZvbGxvd2luZyBvYmplY3RzIGFyZSBtYXNrZWQgZnJvbSDigJhwYWNrYWdlOmJhc2XigJk6XG5cbiAgICBpbnRlcnNlY3QsIHNldGRpZmYsIHNldGVxdWFsLCB1bmlvblxuIn0= -->
+<pre><code>
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union</code></pre>
+<!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxubGlicmFyeShnZ3Bsb3QyKVxuc3VtbWVyIDwtIHJlYWQuY3N2KCdzdW1tZXIuY3N2JylcbndpbnRlciA8LSByZWFkLmNzdignd2ludGVyLmNzdicpXG5kaWN0aW9uYXJ5IDwtIHJlYWQuY3N2KCdkaWN0aW9uYXJ5LmNzdicsIHN0cmluZ3NBc0ZhY3RvcnMgPSBGKVxuYGBgIn0= -->
+<pre class="r"><code>library(ggplot2)
 summer &lt;- read.csv('summer.csv')
 winter &lt;- read.csv('winter.csv')
-dictionary &lt;- read.csv('dictionary.csv')</code></pre>
+dictionary &lt;- read.csv('dictionary.csv', stringsAsFactors = F)</code></pre>
 <!-- rnb-source-end -->
 <!-- rnb-chunk-end -->
 <!-- rnb-text-begin -->
 <div id="summer-olympics" class="section level2">
 <h2>Summer Olympics</h2>
+<div id="cleaning-and-preparing-the-data" class="section level3">
+<h3>Cleaning and preparing the data</h3>
+<p>Replacing the country codes in summer with the country names</p>
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuIyBBZGRpbmcgcmVwbGFjaW5nIGNvdW50cnkgY29kZSBieSBuYW1lXG5zLm9seW1waWNzIDwtIHN1bW1lciAlPiVcbiAgICByZW5hbWUoQ29kZSA9IENvdW50cnkpICU+JVxuICAgIGxlZnRfam9pbiguLCBkaWN0aW9uYXJ5LCBieSA9ICdDb2RlJylcbmBgYCJ9 -->
-<pre class="r"><code># Adding replacing country code by name
-s.olympics &lt;- summer %&gt;%
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxucy5vbHltcGljcyA8LSB0YmxfZGYoc3VtbWVyKSAlPiVcbiAgICByZW5hbWUoQ29kZSA9IENvdW50cnkpICU+JVxuICAgIGxlZnRfam9pbiguLCBkaWN0aW9uYXJ5LCBieSA9ICdDb2RlJylcbmBgYCJ9 -->
+<pre class="r"><code>s.olympics &lt;- tbl_df(summer) %&gt;%
     rename(Code = Country) %&gt;%
     left_join(., dictionary, by = 'Code')</code></pre>
 <!-- rnb-source-end -->
 <!-- rnb-output-begin eyJkYXRhIjoiQ29sdW1uIGBDb2RlYCBqb2luaW5nIGZhY3RvciBhbmQgY2hhcmFjdGVyIHZlY3RvciwgY29lcmNpbmcgaW50byBjaGFyYWN0ZXIgdmVjdG9yXG4ifQ== -->
 <pre><code>Column `Code` joining factor and character vector, coercing into character vector</code></pre>
 <!-- rnb-output-end -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuY29sU3Vtcyhpcy5uYShzLm9seW1waWNzKSlcbmBgYCJ9 -->
+<pre class="r"><code>colSums(is.na(s.olympics))</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-output-begin eyJkYXRhIjoiICAgICAgICAgIFllYXIgICAgICAgICAgIENpdHkgICAgICAgICAgU3BvcnQgICAgIERpc2NpcGxpbmUgICAgICAgIEF0aGxldGUgXG4gICAgICAgICAgICAgMCAgICAgICAgICAgICAgMCAgICAgICAgICAgICAgMCAgICAgICAgICAgICAgMCAgICAgICAgICAgICAgMCBcbiAgICAgICAgICBDb2RlICAgICAgICAgR2VuZGVyICAgICAgICAgIEV2ZW50ICAgICAgICAgIE1lZGFsICAgICAgICBDb3VudHJ5IFxuICAgICAgICAgICAgIDAgICAgICAgICAgICAgIDAgICAgICAgICAgICAgIDAgICAgICAgICAgICAgIDAgICAgICAgICAgIDU0MjMgXG4gICAgUG9wdWxhdGlvbiBHRFAucGVyLkNhcGl0YSBcbiAgICAgICAgICA1NDY5ICAgICAgICAgICA2MDIzIFxuIn0= -->
+<pre><code>          Year           City          Sport     Discipline        Athlete 
+             0              0              0              0              0 
+          Code         Gender          Event          Medal        Country 
+             0              0              0              0           5423 
+    Population GDP.per.Capita 
+          5469           6023 </code></pre>
+<!-- rnb-output-end -->
 <!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<p>There are 5423 records for which Code does not have a corresponding Country name in dictionary. Lets take a look at these.</p>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxucy5vbHltcGljcy5uYSA8LSBzLm9seW1waWNzICU+JSBcbiAgICBmaWx0ZXIoaXMubmEocy5vbHltcGljcyRDb3VudHJ5KSkgJT4lXG4gICAgZ3JvdXBfYnkoQ29kZSkgJT4lXG4gICAgbXV0YXRlKG4gPSBuKCkpICU+JVxuICAgIHNlbGVjdChDb2RlLCBuKSAlPiVcbiAgICBkaXN0aW5jdChDb2RlLCBuKSAlPiVcbiAgICBhcnJhbmdlKGRlc2MobikpXG5zLm9seW1waWNzLm5hXG5gYGAifQ== -->
+<pre class="r"><code>s.olympics.na &lt;- s.olympics %&gt;% 
+    filter(is.na(s.olympics$Country)) %&gt;%
+    group_by(Code) %&gt;%
+    mutate(n = n()) %&gt;%
+    select(Code, n) %&gt;%
+    distinct(Code, n) %&gt;%
+    arrange(desc(n))
+s.olympics.na</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-frame-begin eyJtZXRhZGF0YSI6eyJjbGFzc2VzIjpbImdyb3VwZWRfZGYiLCJ0YmxfZGYiLCJ0YmwiLCJkYXRhLmZyYW1lIl0sIm5jb2wiOjIsIm5yb3ciOjE5fSwicmRmIjoiSDRzSUFBQUFBQUFBQTEyUnpVNkRRQkRIaHk5clNkclVjRFkrUVluMTVyRmZWZzVDc3kyeGNrT0syb2k3RGFYUm8rL2tBM2szOFJXS0EreGdBOGwvNThjd083di9nVTFXVitiS0JBQVZOQjFYRFZGWGNWRkFoM1lSUHdBMHF5d0E2S0VzK1VIejJZSndObUdFelBNSmI5aU04TUd2Y1RtK0paejZ3MzkwQ1lOZ1JiaGdJOEtoRzlSSCtBUENPM2RhOTExNmhDT3ZQbUowNzBpRXV1bHNUdWg0Y3d5ZDBoV2NLcGk1UnFPZjZQb0g5WVZ5VURnWCtFWmRvaTVRNTZnelZCZFZqSzZGTXNyK2xiVEdDSTBvQ1hjN09UNUttdXN3Qysybk5IeUxtK1VjYzFTdXlxUStGdXVZZmdsdjdHaW40dDJtWFlXYndnTGtlZjZMNGRBb2JvbHR0aEVjUzFWTFh2ejRYa3JhU1BUMnZHaTk3a2N2ZS83YUh3eWthd1dxcHlQWk9tSzFPbFBMWlM5RDlqcUorZk9Ha3c4akNSL2pSTDUwMFVOcHdkNm1HNTdSbERDN3N6T1JoVlJuUmlLaFRHa09EbitHa3FOdHhRSUFBQT09In0= -->
+<div data-pagedtable="false">
+<script data-pagedtable-source type="application/json">
+{"columns":[{"label":["Code"],"name":[1],"type":["chr"],"align":["left"]},{"label":["n"],"name":[2],"type":["int"],"align":["right"]}],"data":[{"1":"URS","2":"2049"},{"1":"GDR","2":"825"},{"1":"ROU","2":"640"},{"1":"FRG","2":"490"},{"1":"YUG","2":"435"},{"1":"TCH","2":"329"},{"1":"EUA","2":"260"},{"1":"EUN","2":"223"},{"1":"ZZX","2":"48"},{"1":"SRB","2":"31"},{"1":"ANZ","2":"29"},{"1":"RU1","2":"17"},{"1":"MNE","2":"14"},{"1":"TTO","2":"10"},{"1":"BOH","2":"7"},{"1":"BWI","2":"5"},{"1":"","2":"4"},{"1":"SGP","2":"4"},{"1":"IOP","2":"3"}],"options":{"columns":{"min":{},"max":[10],"total":[2]},"rows":{"min":[10],"max":[10],"total":[19]},"pages":{}}}
+  </script>
+</div>
+<!-- rnb-frame-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<p>Most of these missing countires are names of old counties/kingdoms or unions that later split (USSR) or joined (East &amp; West Germany). Adding the missing country data.</p>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+</div>
+<div id="top-10-countries-having-medals-in-summer-olympics" class="section level3">
+<h3>Top 10 countries having medals in Summer Olympics</h3>
+<!-- rnb-text-end -->
+<!-- rnb-chunk-begin -->
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxudG9wMTAuY291bnRyaWVzIDwtIHMub2x5bXBpY3MgJT4lIFxuICAgIGdyb3VwX2J5KENvdW50cnkpICU+JVxuICAgIHN1bW1hcmlzZShtZWRhbC5jb3VudCA9IG4oKSkgXG50b3AxMC5jb3VudHJpZXNcbmBgYCJ9 -->
+<pre class="r"><code>top10.countries &lt;- s.olympics %&gt;% 
+    group_by(Country) %&gt;%
+    summarise(medal.count = n()) 
+top10.countries</code></pre>
+<!-- rnb-source-end -->
+<!-- rnb-frame-begin eyJtZXRhZGF0YSI6eyJjbGFzc2VzIjpbInRibF9kZiIsInRibCIsImRhdGEuZnJhbWUiXSwibmNvbCI6MiwibnJvdyI6MTMwfSwicmRmIjoiSDRzSUFBQUFBQUFBQTJWV3pXOWJSUkIvY2V6bmo2UWZvUzNmUWc4T1ZLcmFJTXFoQ0ltRDQ2UnBtamdLc1JOVmxUaU0vYmJQRzcrMzYrN2JyV3NMQWVxTksrSUVaNDZJSytMQW1YK0Z2d0dwWmRiZXJ4cEw2OW1kbVoyWi9jM3N2RDNkZlhTMzlhZ1ZSVkVsV3EvaS96cE9xeFg4VzR1cVVWUFQ1MUcwZm0yaEVFVlhjYnd3Z28zMmsyd0VqSllTbUdIVjIzbEdCQVd6YkxaRlJwaWtESnhjRklRRmNsVktBVG4xY3Mxd3kxWjdUc1FBNklWM3NBTWpLS0FNbGdLb2xUWjJBTlZUN3NVa0I2SENaVVpWNGJTSktGUUt0OXlheTNJS0x0aDRSOENjNWs2cThneDhiUFVkSlJSTHFSVjNvQ0NDY3h0SzNFRkRxVld1ZFVZMEo4SENPV2wwZU02TGdUOXloeU9leVNrZFdzNmxEcGNrU1c4ZVBPTlVXQnYxanVBZzNhNXFSdzFjMkozWnhKLzVjbWRPaHFQa2xFelVJS2REdTMyWHNBTEUyQWF4ZTBFSFhFbDdtRGQyZVVFWmhzRCt0M0Z2cUJCZ1lZK3lsODBtMHNrRWxZSTRnUFpLeVgydUczdHlSUG5FNDNlZnNoeFlhcU8rTDRBTkhVVDdNSEJRMXZjSkY1bmZ1STlwQXpaenFxTWdaZnVDRUdlbGpxc2dDYzE5QlpJVWtIdHROZk43YXcrQU9nUmFEempMa2tQOHM5VlJmNkFZNXQrNnJSOE1TUkIrN1FCTHdUbkNCV2VrOU9rNUVLNkM5ZnlwTXlKQ0kvRkJLWURrenFTRTNMbDdpRlh2YTZMMkVDYk9ZdXNRNWpBZUJkZXdka2pZek9wdUhuSk15dTNrbUFzNVd1SDFNT21XRngrcUtTTGdqTTVFTnBzSFJ1TWprTTk4Rm83SUFKakxVZk9JeXBFQ24rN1drWHBPQ2l3cWtWbVZMZ3hKR2xaRUYxTXg4eWloZ3NJS29xNTI0eTU1VG9mY2V1enlQT1hQL0c1TURnOWFSNWNMUG5UYXJTNmZBOTZycDhwVnd6RVUxRiswaldNaVIwUm8rSzIvR3dFcmFXUGZ5bk5TM3ZMNjArUXhnVERweHhTN25UTlB3OVlYSTl4VHNPbHJuTUE0N0pQeENkWmRBVjRxSUZOT3UzcENoTEp1VDdCejBNbUVZajI1elR3SW9uR0NlVlVaMkxMWlBGRkVTSzQ3Q0xleDE3NENDVGJRK0ZTVkh2VE5IcWlVSm0wQkhwcDZqekRpTGNZOWJNSStTejJLOTJEQ1hTdHE5SExNeXRpblZhK0RKcis1S0xLay9VUUU5ZHViK0s3ZDdBbWFIQUViZXlsMlpkZlRlMWdVQ0JaeDBVeEpTcXgwb3plbGNyN01tZHM5QzlMUUJ6cjFONlVQRi9TMVJEVDZ3T1pCMlRiNkk2Q0JzV3FmWjdha2FuMnNPS3Q0clk5UjBSVFNCSldUUGgrQTA2djNGWDRVZ3hDVUdCT2IyL2dzd3cwTzZiT3gvbnpaczEwL1kxU1NkSkdOWksrZ0F2dVZhK1JHZG9qd3A5eCt3eTRaYms4R3F2VXpvWUp5YXAzTkIrUzFVemZQTWNGelJWd25ySjlUSWhGa3M3eHlUckhoc3VTZ1hOd0ZXMGJ4WXdpK1ZJM0h0QmpBWUVxMHdWZjQwK0ZFK25td2ZDcGN3YWVEZmt4c0lJcS9JdjBSeDdzNDNvdjAyMkk1bmlMNXhhL1hmc2ZSTmV1MzBNd1BTRC9FNThkTmpiaE9oNUVKSkQrYitlZEkvalh6MlBoKzM2ejF2anM0L1J1ekp3M3ZIWnpqV0R4bGZncGkwYU94OUZHOWgzUUx4eDg0UHNieHBaRi9vTEhDL1hydmR4alhkYVNmNHZnYXh4Zm9lc3Y0MStlK2J1SzlaM2pXdnFZWEp0YTNjYnhwNUtpNzNqUHl2d3p0bytnVzBwbXh1YlhFVmVPLzltcUpqWTFaaXhjMjliN0x4dmRIQm5QMHQvWm5FQWZTS3NhMzlvMnhlOXZReWhJZmg0YytnMzRibmkvUEhmMjI1TWVJeTlZL09EOHlPcHV2MjlhNXUvSEp5anV5TnN5aExBM3dsdGxLc1ROdFB4SDZmcStvNnp0djFTdnUyY01Ways0anZGR1FGUEx0b1dhdWJHOEtQdDIySm5SWlZyN0hQNnpTYjVHOFhGR3U4NG1rbktGcVJWZFpiU1hJTmJIQ3VLcVlOcDNlR1k0VUc5LzU3SzZCU1I4L012NzAvRVV3cnl4OXJyOHl0bXIyVWhHVytRNVF5MkhnWGdDWDhReUxJMnhQc05tNEx6Tnl5MjNKcFd2UXJTSFBMV2R4dU9qbGY5SThoV2pYQ3dBQSJ9 -->
+<div data-pagedtable="false">
+<script data-pagedtable-source type="application/json">
+{"columns":[{"label":["Country"],"name":[1],"type":["chr"],"align":["left"]},{"label":["medal.count"],"name":[2],"type":["int"],"align":["right"]}],"data":[{"1":"Afghanistan","2":"2"},{"1":"Algeria","2":"15"},{"1":"Argentina","2":"259"},{"1":"Armenia","2":"11"},{"1":"Australia","2":"1189"},{"1":"Austria","2":"146"},{"1":"Azerbaijan","2":"26"},{"1":"Bahamas","2":"27"},{"1":"Bahrain","2":"1"},{"1":"Barbados","2":"1"},{"1":"Belarus","2":"113"},{"1":"Belgium","2":"411"},{"1":"Bermuda*","2":"1"},{"1":"Botswana","2":"1"},{"1":"Brazil","2":"431"},{"1":"Bulgaria","2":"333"},{"1":"Burundi","2":"1"},{"1":"Cameroon","2":"23"},{"1":"Canada","2":"649"},{"1":"Chile","2":"33"},{"1":"China","2":"807"},{"1":"Colombia","2":"19"},{"1":"Costa Rica","2":"4"},{"1":"Cote d'Ivoire","2":"1"},{"1":"Croatia","2":"114"},{"1":"Cuba","2":"410"},{"1":"Cyprus","2":"1"},{"1":"Czech Republic","2":"56"},{"1":"Denmark","2":"507"},{"1":"Djibouti","2":"1"},{"1":"Dominican Republic","2":"6"},{"1":"Ecuador","2":"2"},{"1":"Egypt","2":"28"},{"1":"Eritrea","2":"1"},{"1":"Estonia","2":"39"},{"1":"Ethiopia","2":"45"},{"1":"Finland","2":"456"},{"1":"France","2":"1396"},{"1":"Gabon","2":"1"},{"1":"Georgia","2":"25"},{"1":"Germany","2":"1305"},{"1":"Ghana","2":"16"},{"1":"Greece","2":"148"},{"1":"Grenada","2":"1"},{"1":"Guatemala","2":"1"},{"1":"Guyana","2":"1"},{"1":"Haiti","2":"8"},{"1":"Hong Kong*","2":"4"},{"1":"Hungary","2":"1079"},{"1":"Iceland","2":"17"},{"1":"India","2":"184"},{"1":"Indonesia","2":"38"},{"1":"Iran","2":"61"},{"1":"Iraq","2":"1"},{"1":"Ireland","2":"30"},{"1":"Israel","2":"7"},{"1":"Italy","2":"1296"},{"1":"Jamaica","2":"127"},{"1":"Japan","2":"788"},{"1":"Kazakhstan","2":"49"},{"1":"Kenya","2":"93"},{"1":"Korea, North","2":"58"},{"1":"Korea, South","2":"529"},{"1":"Kuwait","2":"2"},{"1":"Kyrgyzstan","2":"3"},{"1":"Latvia","2":"20"},{"1":"Lebanon","2":"4"},{"1":"Lithuania","2":"55"},{"1":"Luxembourg","2":"2"},{"1":"Macedonia","2":"1"},{"1":"Malaysia","2":"8"},{"1":"Mauritius","2":"1"},{"1":"Mexico","2":"106"},{"1":"Moldova","2":"6"},{"1":"Mongolia","2":"24"},{"1":"Morocco","2":"22"},{"1":"Mozambique","2":"2"},{"1":"Namibia","2":"4"},{"1":"Netherlands","2":"851"},{"1":"Netherlands Antilles*","2":"1"},{"1":"New Zealand","2":"190"},{"1":"Niger","2":"1"},{"1":"Nigeria","2":"84"},{"1":"Norway","2":"554"},{"1":"Pakistan","2":"121"},{"1":"Panama","2":"3"},{"1":"Paraguay","2":"17"},{"1":"Peru","2":"15"},{"1":"Philippines","2":"9"},{"1":"Poland","2":"511"},{"1":"Portugal","2":"33"},{"1":"Puerto Rico*","2":"8"},{"1":"Qatar","2":"4"},{"1":"Russia","2":"768"},{"1":"Saudi Arabia","2":"6"},{"1":"Senegal","2":"1"},{"1":"Serbia","2":"14"},{"1":"Singapore","2":"4"},{"1":"Slovakia","2":"34"},{"1":"Slovenia","2":"26"},{"1":"South Africa","2":"106"},{"1":"Spain","2":"442"},{"1":"Sri Lanka","2":"2"},{"1":"Sudan","2":"1"},{"1":"Suriname","2":"2"},{"1":"Sweden","2":"1044"},{"1":"Switzerland","2":"380"},{"1":"Syria","2":"3"},{"1":"Taiwan","2":"44"},{"1":"Tajikistan","2":"3"},{"1":"Tanzania","2":"2"},{"1":"Thailand","2":"25"},{"1":"Togo","2":"1"},{"1":"Tonga","2":"1"},{"1":"Trinidad and Tobago","2":"20"},{"1":"Tunisia","2":"10"},{"1":"Turkey","2":"86"},{"1":"Uganda","2":"7"},{"1":"Ukraine","2":"173"},{"1":"United Arab Emirates","2":"1"},{"1":"United Kingdom","2":"1720"},{"1":"United States","2":"4585"},{"1":"Uruguay","2":"76"},{"1":"Uzbekistan","2":"20"},{"1":"Venezuela","2":"12"},{"1":"Vietnam","2":"2"},{"1":"Virgin Islands*","2":"1"},{"1":"Zambia","2":"2"},{"1":"Zimbabwe","2":"23"},{"1":"NA","2":"5423"}],"options":{"columns":{"min":{},"max":[10],"total":[2]},"rows":{"min":[10],"max":[10],"total":[130]},"pages":{}}}
+  </script>
+</div>
+<!-- rnb-frame-end -->
+<!-- rnb-chunk-end -->
+<!-- rnb-text-begin -->
+<!-- rnb-text-end -->
+</div>
 </div>
 
-<div id="rmd-source-code">LS0tCnRpdGxlOiAiT2x5bXBpYyBTcG9ydHMgYW5kIE1lZGFscygxODk2LTIwMTQpIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpNb3JlIHRoYW4gMzUsMDAwIG1lZGFscyBoYXZlIGJlZW4gYXdhcmRlZCBhdCB0aGUgT2x5bXBpY3Mgc2luY2UgMTg5Ni4gVGhlIGZpcnN0IHR3byBPbHltcGlhZHMgYXdhcmRlZCBzaWx2ZXIgbWVkYWxzIGFuZCBhbiBvbGl2ZSB3cmVhdGggZm9yIHRoZSB3aW5uZXIsIGFuZCB0aGUgSU9DIHJldHJvc3BlY3RpdmVseSBhd2FyZGVkIGdvbGQsIHNpbHZlciwgYW5kIGJyb256ZSB0byBhdGhsZXRlcyBiYXNlZCBvbiB0aGVpciByYW5raW5ncy4gVGhpcyBkYXRhc2V0IGluY2x1ZGVzIGEgcm93IGZvciBldmVyeSBPbHltcGljIGF0aGxldGUgdGhhdCBoYXMgd29uIGEgbWVkYWwgc2luY2UgdGhlIGZpcnN0IGdhbWVzLiAKCldoaWNoIE9seW1waWMgYXRobGV0ZXMgaGF2ZSB0aGUgbW9zdCBnb2xkIG1lZGFscz8gV2hpY2ggY291bnRyaWVzIGFyZSB0aGV5IGZyb20gYW5kIGhvdyBoYXMgaXQgY2hhbmdlZCBvdmVyIHRpbWU/CgpgYGB7cn0KbGlicmFyeShyZWFkcikKbGlicmFyeShkcGx5cikKbGlicmFyeShnZ3Bsb3QyKQpzdW1tZXIgPC0gcmVhZC5jc3YoJ3N1bW1lci5jc3YnKQp3aW50ZXIgPC0gcmVhZC5jc3YoJ3dpbnRlci5jc3YnKQpkaWN0aW9uYXJ5IDwtIHJlYWQuY3N2KCdkaWN0aW9uYXJ5LmNzdicsIHN0cmluZ3NBc0ZhY3RvcnMgPSBGKQpgYGAKCgojIyBTdW1tZXIgT2x5bXBpY3MKCmBgYHtyfQojIEFkZGluZyByZXBsYWNpbmcgY291bnRyeSBjb2RlIGJ5IG5hbWUKcy5vbHltcGljcyA8LSBzdW1tZXIgJT4lCiAgICByZW5hbWUoQ29kZSA9IENvdW50cnkpICU+JQogICAgbGVmdF9qb2luKC4sIGRpY3Rpb25hcnksIGJ5ID0gJ0NvZGUnKQoKYGBgCg==</div>
+<div id="rmd-source-code">LS0tCnRpdGxlOiAiT2x5bXBpYyBTcG9ydHMgYW5kIE1lZGFscygxODk2LTIwMTQpIgpvdXRwdXQ6IGh0bWxfbm90ZWJvb2sKLS0tCgpNb3JlIHRoYW4gMzUsMDAwIG1lZGFscyBoYXZlIGJlZW4gYXdhcmRlZCBhdCB0aGUgT2x5bXBpY3Mgc2luY2UgMTg5Ni4gVGhlIGZpcnN0IHR3byBPbHltcGlhZHMgYXdhcmRlZCBzaWx2ZXIgbWVkYWxzIGFuZCBhbiBvbGl2ZSB3cmVhdGggZm9yIHRoZSB3aW5uZXIsIGFuZCB0aGUgSU9DIHJldHJvc3BlY3RpdmVseSBhd2FyZGVkIGdvbGQsIHNpbHZlciwgYW5kIGJyb256ZSB0byBhdGhsZXRlcyBiYXNlZCBvbiB0aGVpciByYW5raW5ncy4gVGhpcyBkYXRhc2V0IGluY2x1ZGVzIGEgcm93IGZvciBldmVyeSBPbHltcGljIGF0aGxldGUgdGhhdCBoYXMgd29uIGEgbWVkYWwgc2luY2UgdGhlIGZpcnN0IGdhbWVzLiAKCldoaWNoIE9seW1waWMgYXRobGV0ZXMgaGF2ZSB0aGUgbW9zdCBnb2xkIG1lZGFscz8gV2hpY2ggY291bnRyaWVzIGFyZSB0aGV5IGZyb20gYW5kIGhvdyBoYXMgaXQgY2hhbmdlZCBvdmVyIHRpbWU/CgpgYGB7cn0KbGlicmFyeShyZWFkcikKbGlicmFyeShkcGx5cikKbGlicmFyeShnZ3Bsb3QyKQpzdW1tZXIgPC0gcmVhZC5jc3YoJ3N1bW1lci5jc3YnKQp3aW50ZXIgPC0gcmVhZC5jc3YoJ3dpbnRlci5jc3YnKQpkaWN0aW9uYXJ5IDwtIHJlYWQuY3N2KCdkaWN0aW9uYXJ5LmNzdicsIHN0cmluZ3NBc0ZhY3RvcnMgPSBGKQpgYGAKCgojIyBTdW1tZXIgT2x5bXBpY3MKCiMjIyBDbGVhbmluZyBhbmQgcHJlcGFyaW5nIHRoZSBkYXRhCgpSZXBsYWNpbmcgdGhlIGNvdW50cnkgY29kZXMgaW4gc3VtbWVyIHdpdGggdGhlIGNvdW50cnkgbmFtZXMKCmBgYHtyfQpzLm9seW1waWNzIDwtIHRibF9kZihzdW1tZXIpICU+JQogICAgcmVuYW1lKENvZGUgPSBDb3VudHJ5KSAlPiUKICAgIGxlZnRfam9pbiguLCBkaWN0aW9uYXJ5LCBieSA9ICdDb2RlJykKCmNvbFN1bXMoaXMubmEocy5vbHltcGljcykpCgpgYGAKClRoZXJlIGFyZSA1NDIzIHJlY29yZHMgZm9yIHdoaWNoIENvZGUgZG9lcyBub3QgaGF2ZSBhIGNvcnJlc3BvbmRpbmcgQ291bnRyeSBuYW1lIGluIGRpY3Rpb25hcnkuIExldHMgdGFrZSBhIGxvb2sgYXQgdGhlc2UuCgpgYGB7cn0Kcy5vbHltcGljcy5uYSA8LSBzLm9seW1waWNzICU+JSAKICAgIGZpbHRlcihpcy5uYShzLm9seW1waWNzJENvdW50cnkpKSAlPiUKICAgIGdyb3VwX2J5KENvZGUpICU+JQogICAgbXV0YXRlKG4gPSBuKCkpICU+JQogICAgc2VsZWN0KENvZGUsIG4pICU+JQogICAgZGlzdGluY3QoQ29kZSwgbikgJT4lCiAgICBhcnJhbmdlKGRlc2MobikpCgpzLm9seW1waWNzLm5hCmBgYAoKCk1vc3Qgb2YgdGhlc2UgbWlzc2luZyBjb3VudGlyZXMgYXJlIG5hbWVzIG9mIG9sZCBjb3VudGllcy9raW5nZG9tcyBvciB1bmlvbnMgdGhhdCBsYXRlciBzcGxpdCAoVVNTUikgb3Igam9pbmVkIChFYXN0ICYgV2VzdCBHZXJtYW55KS4gQWRkaW5nIHRoZSBtaXNzaW5nIGNvdW50cnkgZGF0YS4KICAgIApgYGB7cn0KbWlzc2luZy5jb3VudHJ5IDwtIGMoJ1JVUycsICdHRVInLCAnUk9NJywgJ0dFUicsICdZVUcnLCApCgpgYGAKCgojIyMgVG9wIDEwIGNvdW50cmllcyBoYXZpbmcgbWVkYWxzIGluIFN1bW1lciBPbHltcGljcwoKYGBge3J9CnRvcDEwLmNvdW50cmllcyA8LSBzLm9seW1waWNzICU+JSAKICAgIGdyb3VwX2J5KENvdW50cnkpICU+JQogICAgc3VtbWFyaXNlKG1lZGFsLmNvdW50ID0gbigpKSAKCnRvcDEwLmNvdW50cmllcwpgYGAKCg==</div>
 
 
 

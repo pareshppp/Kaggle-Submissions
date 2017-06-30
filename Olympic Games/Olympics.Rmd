@@ -19,10 +19,49 @@ dictionary <- read.csv('dictionary.csv', stringsAsFactors = F)
 
 ## Summer Olympics
 
+### Cleaning and preparing the data
+
+Replacing the country codes in summer with the country names
+
 ```{r}
-# Adding replacing country code by name
-s.olympics <- summer %>%
+s.olympics <- tbl_df(summer) %>%
     rename(Code = Country) %>%
     left_join(., dictionary, by = 'Code')
 
+colSums(is.na(s.olympics))
+
 ```
+
+There are 5423 records for which Code does not have a corresponding Country name in dictionary. Lets take a look at these.
+
+```{r}
+s.olympics.na <- s.olympics %>% 
+    filter(is.na(s.olympics$Country)) %>%
+    group_by(Code) %>%
+    mutate(n = n()) %>%
+    select(Code, n) %>%
+    distinct(Code, n) %>%
+    arrange(desc(n))
+
+s.olympics.na
+```
+
+
+Most of these missing countires are names of old counties/kingdoms or unions that later split (USSR) or joined (East & West Germany). Adding the missing country data.
+    
+```{r}
+missing.country <- c('RUS', 'GER', 'ROM', 'GER', 'YUG', )
+
+```
+
+
+### Top 10 countries having medals in Summer Olympics
+
+```{r}
+top10.countries <- s.olympics %>% 
+    group_by(Country) %>%
+    summarise(medal.count = n()) 
+
+top10.countries
+```
+
