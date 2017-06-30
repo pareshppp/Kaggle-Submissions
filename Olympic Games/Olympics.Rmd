@@ -1,0 +1,28 @@
+---
+title: "Olympic Sports and Medals(1896-2014)"
+output: html_notebook
+---
+
+More than 35,000 medals have been awarded at the Olympics since 1896. The first two Olympiads awarded silver medals and an olive wreath for the winner, and the IOC retrospectively awarded gold, silver, and bronze to athletes based on their rankings. This dataset includes a row for every Olympic athlete that has won a medal since the first games. 
+
+Which Olympic athletes have the most gold medals? Which countries are they from and how has it changed over time?
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+summer <- read.csv('summer.csv')
+winter <- read.csv('winter.csv')
+dictionary <- read.csv('dictionary.csv', stringsAsFactors = F)
+```
+
+
+## Summer Olympics
+
+```{r}
+# Adding replacing country code by name
+s.olympics <- summer %>%
+    rename(Code = Country) %>%
+    left_join(., dictionary, by = 'Code')
+
+```
