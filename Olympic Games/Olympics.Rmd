@@ -3,9 +3,7 @@ title: "Olympic Sports and Medals(1896-2014)"
 output: html_notebook
 ---
 
-More than 35,000 medals have been awarded at the Olympics since 1896. The first two Olympiads awarded silver medals and an olive wreath for the winner, and the IOC retrospectively awarded gold, silver, and bronze to athletes based on their rankings. This dataset includes a row for every Olympic athlete that has won a medal since the first games. 
-
-Which Olympic athletes have the most gold medals? Which countries are they from and how has it changed over time?
+More than 35,000 medals have been awarded at the Olympics since 1896. Let's Explore the data.
 
 ```{r}
 library(readr)
@@ -17,7 +15,21 @@ dictionary <- read.csv('dictionary.csv', stringsAsFactors = F)
 ```
 
 
+While exploring the data I noticed that the country names for many country codes were missing. So, I created a separate file (missing-codes.csv) containing the missing countries. I have taken a few liberites while preparing the data to make my work easier, e.g, Soviet Union has been added as 'Russia' even though it contained many countries that later became independent.
+
+Combining the missing data and dictionary.
+
+```{r}
+missing.country <- read.csv('missing_codes.csv', stringsAsFactors = F)
+country.data <- rbind(select(dictionary, Code, Country), 
+                      select(missing.country, Code, Country))
+```
+
+
 ## Summer Olympics
+
+First lets check the Summer Olympics Data.
+
 
 ### Cleaning and preparing the data
 
@@ -26,31 +38,9 @@ Replacing the country codes in summer with the country names
 ```{r}
 s.olympics <- tbl_df(summer) %>%
     rename(Code = Country) %>%
-    left_join(., dictionary, by = 'Code')
+    left_join(., country.data, by = 'Code')
 
 colSums(is.na(s.olympics))
-
-```
-
-There are 5423 records for which Code does not have a corresponding Country name in dictionary. Lets take a look at these.
-
-```{r}
-s.olympics.na <- s.olympics %>% 
-    filter(is.na(s.olympics$Country)) %>%
-    group_by(Code) %>%
-    mutate(n = n()) %>%
-    select(Code, n) %>%
-    distinct(Code, n) %>%
-    arrange(desc(n))
-
-s.olympics.na
-```
-
-
-Most of these missing countires are names of old counties/kingdoms or unions that later split (USSR) or joined (East & West Germany). Adding the missing country data.
-    
-```{r}
-missing.country <- c('RUS', 'GER', 'ROM', 'GER', 'YUG', )
 
 ```
 
@@ -60,8 +50,22 @@ missing.country <- c('RUS', 'GER', 'ROM', 'GER', 'YUG', )
 ```{r}
 top10.countries <- s.olympics %>% 
     group_by(Country) %>%
-    summarise(medal.count = n()) 
+    mutate(medal.count = n()) %>%
+    select(Country, medal.count) %>%
+    distinct(Country, medal.count) %>%
+    arrange(desc(medal.count)) %>%
+    head(10)
 
-top10.countries
+# top10.countries
+
+ggplot(data = top10.countries, 
+       aes(x = reorder(Country, -medal.count), y = medal.count)) +
+    geom_bar(stat = 'identity', width = 0.5, fill = 'green4') +
+    geom_label(aes(label = medal.count), nudge_y = 500) +
+    labs(title = 'Top 10 Countries - Medal Count in Summer Olympics',
+         subtitle = '1986 - 2014') +
+    xlab('Country') +
+    ylab('Number of Medals') +
+    theme(axis.text.x = element_text(angle = 65, vjust = 0.7))
 ```
 
