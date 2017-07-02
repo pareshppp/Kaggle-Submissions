@@ -5,7 +5,7 @@ output: html_notebook
 
 More than 35,000 medals have been awarded at the Olympics since 1896. Let's Explore the data.
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 library(readr)
 library(dplyr)
 library(ggplot2)
@@ -15,7 +15,7 @@ dictionary <- read.csv('dictionary.csv', stringsAsFactors = F)
 ```
 
 
-While exploring the data I noticed that the country names for many country codes were missing. So, I created a separate file (missing-codes.csv) containing the missing countries. I have taken a few liberites while preparing the data to make my work easier, e.g, Soviet Union has been added as 'Russia' even though it contained many countries that later became independent.
+While exploring the data I noticed that the country names for many country codes were missing. So, I created a separate file (missing_codes.csv) containing the missing countries (Source: https://en.wikipedia.org/wiki/List_of_IOC_country_codes). I have taken a few liberties while preparing the data to make my work easier; for example, Soviet Union has been added as 'Russia' even though it contained many countries that later became independent.
 
 Combining the missing data and dictionary.
 
@@ -26,7 +26,7 @@ country.data <- rbind(select(dictionary, Code, Country),
 ```
 
 
-## Summer Olympics
+# Summer Olympics
 
 First lets check the Summer Olympics Data.
 
@@ -35,7 +35,7 @@ First lets check the Summer Olympics Data.
 
 Replacing the country codes in summer with the country names
 
-```{r}
+```{r, warning=FALSE}
 s.olympics <- tbl_df(summer) %>%
     rename(Code = Country) %>%
     left_join(., country.data, by = 'Code')
@@ -44,10 +44,27 @@ colSums(is.na(s.olympics))
 
 ```
 
-
-### Top 10 countries having medals in Summer Olympics
+Removing redundant values in data
 
 ```{r}
+s.olympics$Discipline <- plyr::mapvalues(s.olympics$Discipline, 
+                c('Artistic G.', 'Wrestling Gre-R', 'Croquet',
+                  'Wrestling Free.', 'Water polo', 'Water Motorspor',
+                  'Modern Pentath.', 'Canoe / Kayak F', 'BMX',
+                  'Canoe / Kayak S', 'Synchronized S.', 'Rhythmic G.',
+                  'Beach volley.'), 
+                c('Gymnastics Artistic', 'Wrestling Greco-Roman', 'Roque',
+                  'Wrestling Freestyle', 'Water Polo', 'Water Motorsport',
+                  'Modern Pentathlon', 'Canoe Sprint', 'Cycling BMX',
+                  'Canoe Slalom', 'Synchronized Swimming', 'Gymnastics Rhythmic',
+                  'Beach Volleyball'))
+```
+
+
+### Top 10 countries by medals in Summer Olympics
+Lets find out the top 10 countries based on number of medals won by the country.
+
+```{r, fig.height=5, fig.width=9}
 top10.countries <- s.olympics %>% 
     group_by(Country) %>%
     mutate(medal.count = n()) %>%
@@ -68,4 +85,39 @@ ggplot(data = top10.countries,
     ylab('Number of Medals') +
     theme(axis.text.x = element_text(angle = 65, vjust = 0.7))
 ```
+
+
+### Greatest Olympians of All Time (Summer Olympics)
+Lets find out the top 20 athletes in Summer Olympics history based on number of individual medals won.
+
+```{r, fig.height=5, fig.width=9}
+top20.athletes <- tbl_df(s.olympics) %>%
+    group_by(Athlete) %>%
+    mutate(medal.count = n()) %>%
+    select(Athlete, medal.count, Discipline) %>%
+    distinct(Athlete, medal.count, Discipline) %>%
+    arrange(desc(medal.count)) %>%
+    head(20)
+
+# top20.athletes
+
+ggplot(top20.athletes, 
+       mapping = aes(x = reorder(Athlete, medal.count), 
+                     y = medal.count, 
+                     fill = Discipline)) +
+    geom_bar(stat = 'identity', width = 0.8) +
+    geom_label(aes(label = medal.count), nudge_y = 1) +
+    coord_flip() +
+    labs(title = 'Greatest Olympians of All Time', 
+         subtitle = 'Summer Olympics') +
+    ylab('Number of Individual Medals') +
+    xlab('Athlete') 
+    
+```
+
+### Most Dominant Champions
+Lets find the top 10 most dominant Champions (Gold Medalists) in Summer Olympics history.
+
+### Most Profitable Sports
+Lets find the top 3 sports which have produced the highest number of medals.
 
