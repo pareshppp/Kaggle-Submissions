@@ -58,6 +58,9 @@ s.olympics$Discipline <- plyr::mapvalues(s.olympics$Discipline,
                   'Modern Pentathlon', 'Canoe Sprint', 'Cycling BMX',
                   'Canoe Slalom', 'Synchronized Swimming', 'Gymnastics Rhythmic',
                   'Beach Volleyball'))
+s.olympics$Sport <- plyr::mapvalues(s.olympics$Sport, 
+                                    c('Croquet', 'Canoe / Kayak'), 
+                                    c('Roque', 'Canoe'))
 ```
 
 
@@ -115,9 +118,51 @@ ggplot(top20.athletes,
     
 ```
 
+As you can see Michael Phelps leads as all time highest medal winner.
+
 ### Most Dominant Champions
-Lets find the top 10 most dominant Champions (Gold Medalists) in Summer Olympics history.
+Lets find the top 10 athelets with most gold medals in Summer Olympics history.
+
+```{r, fig.height=5, fig.width=9}
+top10.champions <- s.olympics %>%
+    filter(Medal == 'Gold') %>%
+    group_by(Athlete) %>%
+    mutate(medal.count = n()) %>%
+    select(Athlete, medal.count, Discipline) %>%
+    distinct(Athlete, medal.count, Discipline) %>%
+    arrange(desc(medal.count)) %>%
+    head(10)
+
+# top10.champions
+
+ggplot(top10.champions, 
+       mapping = aes(x = reorder(Athlete, medal.count), 
+                     y = medal.count,
+                     fill = Discipline)) +
+    geom_bar(stat = 'identity', width = 0.8) +
+    geom_label(aes(label = medal.count), nudge_y = 1) +
+    coord_flip() +
+    labs(title = 'Most Dominant Champions of All Time', 
+         subtitle = 'Summer Olympics') +
+    ylab('Number of Individual Gold Medals') +
+    xlab('Athlete')    
+```
+
+Michael Phelps crushes all competition here (and he won even more medals in 2016).
 
 ### Most Profitable Sports
-Lets find the top 3 sports which have produced the highest number of medals.
+Lets find the top 5 sports which have produced the highest number of medals.
 
+```{r}
+top5.sports <- s.olympics %>%
+    group_by(Sport) %>%
+    mutate(medal.count = n()) %>%
+    select(Sport, medal.count) %>%
+    distinct(Sport, medal.count) %>%
+    arrange(desc(medal.count)) %>%
+    head(5)
+
+top5.sports
+```
+
+Aquatics has highest number of medals; probably because it has more number of events at Olympics than any other sport.
