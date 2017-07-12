@@ -1,0 +1,49 @@
+---
+title: "Titanic - Survival Prediction"
+author: "Paresh Pradhan"
+date: "5 July 2017"
+output: html_document
+---
+## Introduction
+We need to predict whether the passengers in test set surivived or perished. We will use different models and see which works best.
+
+```{r start, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(stringr)
+
+train.data <- read.csv('train.csv', stringsAsFactors = F)
+test.data <- read.csv('test.csv', stringsAsFactors = F)
+
+```
+
+## Data Exploration
+Let's explore the train dataset:
+
+```{r EDA1}
+str(train.data)
+```
+
+Lets convert Survived, Pclass and Sex into factors
+
+```{r EDA2}
+train.data$Survived <- as.factor(train.data$Survived)
+train.data$Pclass <- as.factor(train.data$Pclass)
+train.data$Sex <- as.factor(train.data$Sex)
+
+summary(train.data)
+```
+
+There are 177 NA values in Age. To remove these we could just replace the NAs with the average age. But there is a better predictor of age :- The title useed in the passengers' names.
+
+Lets extract Title from Name:
+
+```{r EDA3}
+train.data$Title <- sapply(str_split(
+    string = train.data$Name, pattern = '[,.]'), '[[', 2)
+train.data$Title <- as.factor(train.data$Title)
+```
+
+Lets figure out the average age for each title and then use that to replace the NAs.
+

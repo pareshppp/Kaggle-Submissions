@@ -1,0 +1,102 @@
+---
+title: "What's Cooking - Predicting Cuisine from Ingredients"
+author: "Paresh Pradhan"
+date: "5 July 2017"
+output: html_document
+---
+
+## Introduction
+In this project, we will try to predict the type of cuisine from the given list of ingredients.
+
+```{r start, message=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tm)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(jsonlite)
+library(rattle)
+
+data.train <- fromJSON('train.json', flatten = T)
+data.test <- fromJSON('test.json', flatten = T)
+```
+
+## Understanding the data
+Lets check the data:
+
+```{r explore}
+ggplot(data.train, mapping = aes(x = cuisine)) +
+    geom_bar() + 
+    coord_flip()
+```
+
+As you can see, Italian and Mexican cuisine dominate the data. Lets get the baseline for our predictions.
+
+```{r baseline}
+prop.table(table(as.factor(data.train$cuisine)))
+```
+
+Italian has the highest proportion of 19.7%. This means, if we predict all cuisines as Italian, we will get an accuracy of 19.7%.
+
+Thus 19.7% is our Prediction Baseline. Lets see if our models surpass this.
+
+## Data Preprocessing
+Creating a Corpus:
+
+```{r corpus}
+ingredients <- Corpus(VectorSource(data.train$ingredients))
+ingredients.prep <- tm_map(ingredients, stripWhitespace)
+ingredients.prep <- tm_map(ingredients.prep, stemDocument)
+
+inspect(ingredients.prep[[1]])
+```
+
+Creating a Term-Document Matrix:
+
+```{r TDM}
+ingredients.dtm <- DocumentTermMatrix(x = ingredients.prep)
+ingredients.dtm <- removeSparseTerms(ingredients.dtm, sparse = 0.99)
+```
+
+Converting to data frame
+
+```{r dtm_to_df}
+ingredients.df <- as.data.frame(as.matrix(ingredients.dtm))
+ingredients.df$cuisine <- as.factor(data.train$cuisine)
+```
+
+## Model Creation & Prediction
+We will try out different models and see which performs best.
+
+### Decision Tree
+```{r dtree, message=FALSE}
+set.seed(777)
+
+tr.ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 3, 
+                        verboseIter = T, classProbs = T, 
+                        selectionFunction = 'oneSE')
+
+model.dt <- train(cuisine ~ ., data = ingredients.df, trControl = tr.ctrl,
+                  method = 'rpart', metric = 'Kappa')
+
+```
+
+Checking Model:
+
+```{r dtree2}
+model.dt
+```
+
+
+Lets check the decision tree:
+```{r dtree3}
+rpart.plot(model.dt$finalModel)
+```
+
+Lets make the prediction and create submission file. To make prediction we need to apply the same pre-processing steps to test dataset as train.
+```{r dtree4}
+
+#pred.dt <- predict(model.dt, newdata = data.test, type = 'raw')
+```
+
