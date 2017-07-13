@@ -1,0 +1,385 @@
+---
+title: "Bike Sharing Demand"
+output: 
+    html_notebook:
+        author: Paresh Pradhan
+        theme: readable
+---
+
+## Introduction
+We have to predict the total count of bikes rented during each hour covered by the test set, using only information available prior to the rental period.
+
+```{r start, message=FALSE, warning=FALSE}
+require(plyr)
+detach(package:plyr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(caret)
+library(randomForest)
+library(lubridate)
+library(scales)
+library(ggcorrplot)
+library(parallel)
+library(doParallel)
+```
+
+```{r read_data}
+train.data <- tbl_df(read.csv('./Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('./Input/test.csv', stringsAsFactors = F))
+```
+
+## Data Pre-processing, Cleaning & Feature Extraction
+
+```{r pre_process_start, message=FALSE, warning=FALSE, echo=FALSE, include=FALSE}
+str(train.data)
+summary(train.data)
+```
+
+Replacing season codes with corresponding values.
+
+```{r season}
+season.list <- c('spring', 'summer', 'fall', 'winter')
+
+replace_season <- function(df){
+    df[['season']] <- plyr::mapvalues(df[['season']], 
+                                  from = c(1, 2, 3, 4), 
+                                  to = season.list)
+    return(df)
+}
+
+train.data <- replace_season(train.data)
+```
+
+Creating Weather matrix as follows:  
+weather 1: clear_partly_cloudy
+weather 2: mist_cloudy
+weather 3: light_snow_rain_thunderstorm
+weather 4: heavy_snow_rain_ice_fog_thunderstorm
+
+```{r weather}
+weather.list <- c('clear_partly_cloudy', 'mist_cloudy', 
+                  'light_snow_rain_thunderstorm', 
+                  'heavy_snow_rain_ice_fog_thunderstorm')
+
+replace_weather <- function(df){
+    df[['weather']] <- plyr::mapvalues(df[['weather']], 
+                                  from = c(1, 2, 3, 4), 
+                                  to = weather.list)
+    
+    return(df)
+}
+
+train.data <- replace_weather(train.data)
+```
+
+Splitting datetime into year, month, day_num, day_name, hour
+
+```{r split_date}
+train.data <- train.data %>%
+    mutate(date.year = 0, date.month = '', month.day = 0, 
+           week.day = '', day.hour = 0)
+
+split_date <- function(df){
+    df[['date.year']] = year(df[['datetime']])
+    df[['date.month']] = month(df[['datetime']], label = T)
+    df[['month.day']] = day(df[['datetime']])
+    df[['week.day']] = wday(df[['datetime']], label = T)
+    df[['day.hour']] = hour(df[['datetime']])
+    
+    return(df)
+}
+
+train.data <- split_date(train.data)
+```
+
+Adding new column, temp.div <- temp / atemp
+
+```{r temp_diff}
+train.data <- train.data %>%
+    mutate(temp.div = temp / atemp)
+```
+
+Adding new column, day.type -- working day, holiday or weekend
+
+```{r day_type}
+train.data <- train.data %>%
+    mutate(day.type = NA)
+
+day_type <- function(df){
+    df[['day.type']] <- ifelse(df[['holiday']] == 1, 'Holiday',
+                               ifelse(df[['workingday']] == 1, 'Workingday', 
+                                      'Weekend'))
+    return(df)
+}
+
+train.data <- day_type(train.data) %>% select(-holiday, -workingday)
+```
+
+Converting into Tidy Data
+
+```{r tidy_data}
+tidy.train.data <- train.data %>%
+    group_by(datetime) %>%
+    gather(key = user.type, value = user.count, 
+           casual:registered) %>%
+    select(-count) %>% ungroup()
+
+```
+
+
+Converting columns into factors
+
+```{r convert_factor}
+tidy.train.data[c(2:3, 8:12, 14:15)] <- 
+    lapply(tidy.train.data[c(2:3, 8:12, 14:15)], factor)
+```
+
+Now lets check the data again
+
+```{r pre_process_end}
+summary(tidy.train.data)
+```
+
+## Data Exploration
+First lets check the proportion of casual to registered users
+```{r explore_start}
+tidy.train.data %>% mutate(total.count = sum(user.count)) %>%
+    group_by(user.type) %>%
+    mutate(count = sum(user.count) , prop = count / total.count) %>%
+    select(user.type, count, prop) %>%
+    distinct()
+```
+
+### No. of Users by Season
+Lets check the effect of seasons on the users
+
+```{r explore1, fig.height=4, fig.width=8, fig.align='center'}
+plot.users.by.season <- tidy.train.data %>% 
+    select(season, user.type, user.count) %>% 
+    group_by(season, user.type) %>%
+    mutate(count = sum(user.count)) %>%
+    distinct(season, user.type, count) %>%
+    ggplot(mapping = aes(season, count, fill = user.type)) +
+    geom_bar(stat = 'identity', position = 'dodge', width = 0.7) +
+    scale_y_continuous(labels = comma) +
+    coord_flip() +
+    ggtitle('No. of Users by Season')
+
+plot.users.by.season
+```
+
+It seems less people ride bicycles during Spring season than other seasons.
+
+In winter and spring the proportion of casual users decreases in comparision to registered users.
+
+### No. of Users by Weather
+Lets check the user count by weather
+
+```{r explore2, fig.height=4, fig.width=9, fig.align='center'}
+plot.users.by.weather <- tidy.train.data %>%
+    select(weather, user.type, user.count) %>%
+    group_by(weather, user.type) %>%
+    mutate(count = sum(user.count)) %>%
+    distinct(weather, user.type, count) %>%
+    ggplot(mapping = aes(reorder(weather, count), count, 
+                         fill = user.type)) +
+    geom_bar(stat = 'identity', width = 0.8) +
+    scale_y_continuous(labels = comma) +
+    coord_flip() +
+    xlab('weather type') +
+    ggtitle('No. of Users by Weather')
+
+plot.users.by.weather
+```
+
+Most people ride during good weather (Clear, Partly Cloudy). Only the most dedicated ride in bad weather (Thunderstorm, Light snow or Rain).
+
+### No. of Users over Days of Week
+Lets check user count over days of week
+
+```{r explore3, fig.height=5, fig.width=8, fig.align='center'}
+plot.users.over.days.of.week <-tidy.train.data %>%
+    select(week.day, user.type, user.count) %>%
+    group_by(week.day, user.type) %>%
+    mutate(count = sum(user.count)) %>%
+    distinct(week.day, user.type, count) %>%
+    ggplot(mapping = aes(x = week.day, y = count/1000, 
+                         fill = user.type)) +
+    geom_bar(stat = 'identity') +
+    ylab('No. of users in 1000\'s') +
+    ggtitle(label = 'No. of Users over Days of Week', 
+            subtitle = '(User count is in thousands)')
+
+plot.users.over.days.of.week
+```
+
+While the overall count of users remains pretty much the same over the week, more casual users ride bicycles on weekends; and the registered users prefer to ride during the weekdays.
+
+### No. of Users based on Hour of Day
+Lets check what time of the day most users ride.
+
+```{r explore4, fig.height=4, fig.width=10, fig.align='center'}
+plot.users.by.hour.of.day <- tidy.train.data %>%
+    select(day.hour, user.type, user.count) %>%
+    group_by(day.hour, user.type) %>%
+    mutate(count = sum(user.count)) %>%
+    distinct(day.hour, user.type, count) %>%
+    ggplot(mapping = aes(x = day.hour, y = count/1000, 
+                         fill = user.type)) +
+    geom_bar(stat = 'identity') +
+    ylab('No. of users in 1000\'s') +
+    ggtitle(label = 'No. of Users by Hour of Day', 
+            subtitle = '(User count is in thousands)')
+
+plot.users.by.hour.of.day
+```
+
+As expected, most users ride between 6 AM to 11 PM. The bicycle use peaks at 8 AM and between 4 PM to 7 PM. 
+
+There is a consistent level of bicycle use from 7 AM to 8 PM, with only a slight dip at 10 AM. After 8 PM, the usage slowly decreases.
+
+### No. of Users based on Hour of Day by Season
+Lets see if the usage pattern changes in different seasons.
+
+```{r explore5, fig.height=5, fig.width=12, fig.align='center'}
+plot.users.by.hour.of.day.by.season <- tidy.train.data %>%
+    select(season, day.hour, user.type, user.count) %>%
+    group_by(season, day.hour, user.type) %>%
+    mutate(count = sum(user.count)) %>%
+    distinct(season, day.hour, user.type, count) %>%
+    ggplot(mapping = aes(x = day.hour, y = count/1000, 
+                         fill = user.type)) +
+    geom_bar(stat = 'identity') +
+    facet_wrap(~ season) +
+    ylab('No. of users in 1000\'s') +
+    ggtitle(label = 'No. of Users by Hour of Day by Season', 
+            subtitle = '(User count is in thousands)')
+
+plot.users.by.hour.of.day.by.season
+```
+
+Nothing new here. We already knew that there are less users overall during Spring. The usage pattern by hour of day is same in all 4 seasons.
+
+### Correlaton between Temperature, Humidity, Windspeed and User Count
+
+Lets see the correlation between Temperature, Humidity, Windspeed and User Count.
+
+```{r explore6, fig.align='center', fig.height=5, fig.width=5}
+plot.corr.temp.hum.wind.user <- tidy.train.data %>%
+    select(atemp, temp.div, humidity, windspeed, user.count) %>%
+    distinct() %>% cor() %>% round(digits = 1) %>%
+    ggcorrplot(method = 'circle', 
+               type = 'lower', hc.order = T, lab = T, lab_size = 4, 
+               ggtheme = theme_bw, 
+               title = 'Correlaton between Temp, Humidity, Windspeed & UserCount')
+
+plot.corr.temp.hum.wind.user
+```
+
+User Count seems to have positive correlation to Temperature and negative to humidity.
+
+## Model Training, Prediction & Evaluation
+
+We will use Linear Model, Decision Tree(RPart) & Random Forest to train our models.
+
+First we will Configure parallel processing
+
+```{r parallel_cluster}
+ncluster <- makeCluster(detectCores() - 1)
+registerDoParallel(ncluster)
+```
+
+
+Splitting training and testing datasets
+
+```{r sample_train_test_split}
+set.seed(777)
+
+sample.train.data <- sample_n(tidy.train.data, size = 2000)
+    
+inTraining <- createDataPartition(y = sample.train.data$user.count, 
+                                  p = 0.75, list = F)
+training <- sample.train.data[inTraining, ]
+testing <- sample.train.data[-inTraining, ]
+```
+
+```{r train_test_split}
+# set.seed(777)
+# 
+# inTraining <- createDataPartition(y = tidy.train.data$user.count, 
+#                                   p = 0.75, list = F)
+# training <- tidy.train.data[inTraining, ]
+# testing <- tidy.train.data[-inTraining, ]
+```
+
+Setting train control and grid parameters
+
+```{r train_control}
+tr.ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 5,
+                        verboseIter = T, allowParallel = T)
+
+grid.rf <- expand.grid(.mtry = c(2, 4, 7, 14))
+```
+
+Training models
+
+```{r train_model1, message=FALSE, warning=FALSE }
+set.seed(777)
+fit.lm <- train(x = training[2:15], y = training$user.count, method = 'lm', 
+                metric = 'RMSE', trControl = tr.ctrl)
+```
+
+```{r train_model2, message=FALSE, warning=FALSE }
+set.seed(777)
+fit.rpart <- train(x = training[2:15], y = training$user.count, method = 'rpart', 
+                metric = 'RMSE', trControl = tr.ctrl)
+```
+
+```{r train_model3, message=FALSE, warning=FALSE }
+set.seed(777)
+fit.rf <- train(x = training[2:15], y = training$user.count, method = 'rf', 
+                metric = 'RMSE', importance = T,
+                trControl = tr.ctrl, tuneGrid = grid.rf)
+```
+
+Evaluating the models
+
+```{r model_evaluation}
+resamps <- resamples(list(LM = fit.lm, 
+                          RPART = fit.rpart,
+                          RF = fit.rf))
+summary(resamps)
+```
+
+
+Variable Importance
+
+```{r variable_importance}
+varImp(object = fit.lm , scale = T)
+varImp(object = fit.rpart)
+varImp(object = fit.rf)
+```
+
+De-registering parallel processing cluster
+
+```{r parallel_cluster_stop}
+stopCluster(ncluster)
+registerDoSEQ()
+```
+
+Lets run the model on our testing split.
+
+```{r testing}
+predict.rf <- predict(fit.rf, newdata = testing)
+```
+
+Lets evaluate our model
+
+```{r rmse}
+RMSE(pred = predict.rf, obs = testing$count)
+```
+
+
+
