@@ -3,4 +3,6 @@
 *.RData
 *.Ruserdata
 *.Rproj
+*.html
 RData_Files
+.Rproj.user

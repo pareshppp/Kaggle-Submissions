@@ -20,34 +20,40 @@ library(scales)
 library(ggcorrplot)
 library(parallel)
 library(doParallel)
+library(gridExtra)
 ```
 
 ```{r read_data}
-train.data <- tbl_df(read.csv('./Input/train.csv', stringsAsFactors = F))
-test.data <- tbl_df(read.csv('./Input/test.csv', stringsAsFactors = F))
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
 ```
 
-## Data Pre-processing, Cleaning & Feature Extraction
+## Data Pre-processing, Cleaning & Feature Engineering
 
 ```{r pre_process_start, message=FALSE, warning=FALSE, echo=FALSE, include=FALSE}
 str(train.data)
 summary(train.data)
 ```
 
-Adding season names.
+One Hot Encoding Season.
 
-```{r season_name}
-season.list <- c('spring', 'summer', 'fall', 'winter')
-train.data$season.name <- train.data$season
+```{r OHE_season}
 
-replace_season <- function(df){
-    df[['season.name']] <- plyr::mapvalues(df[['season.name']], 
-                                  from = c(1, 2, 3, 4), 
-                                  to = season.list)
+OHE_season <- function(df){
+    
+    season.value = 1
+    
+    for (i in c('spring', 'summer', 'fall', 'winter')){
+        
+        df[[i]] <- ifelse(df[['season']] == season.value, 1, 0)
+        season.value <- season.value + 1
+        
+    }
+    
     return(df)
 }
 
-train.data <- replace_season(train.data)
+train.data <- OHE_season(train.data)
 ```
 
 Adding weather codes as follows:  
@@ -56,45 +62,46 @@ weather 2: mist_cloudy
 weather 3: light_snow_rain_thunderstorm
 weather 4: heavy_snow_rain_ice_fog_thunderstorm
 
-```{r weather_type}
-weather.list <- c('clear_partly_cloudy', 'mist_cloudy', 
-                  'light_snow_rain_thunderstorm', 
-                  'heavy_snow_rain_ice_fog_thunderstorm')
+```{r OHE_weather}
 
-train.data$weather.type <- train.data$weather
-
-replace_weather <- function(df){
-    df[['weather.type']] <- plyr::mapvalues(df[['weather.type']], 
-                                  from = c(1, 2, 3, 4), 
-                                  to = weather.list)
+OHE_weather <- function(df){
+    
+    weather.value = 1
+    
+    for (i in c('clear_partly_cloudy', 'mist_cloudy', 'light_snow_rain',
+                'heavy_snow_rain')){
+        
+        df[[i]] <- ifelse(df[['weather']] == weather.value, 1, 0)
+        weather.value <- weather.value + 1
+        
+    }
     
     return(df)
 }
 
-train.data <- replace_weather(train.data)
+train.data <- OHE_weather(train.data)
 ```
 
-Splitting datetime into year, month, day_num, day_name, hour
+Splitting datetime into year, month, day_num, weekday, hour
 
 ```{r split_date}
-train.data <- train.data %>%
-    mutate(date.year = 0, date.month = '', month.day = 0, 
-           week.day = '', day.hour = 0)
 
 split_date <- function(df){
-    df[['date.year']] = year(df[['datetime']])
-    df[['date.month']] = month(df[['datetime']])
-    df[['date.month.name']] = month(df[['datetime']], label = T)
+    df[['year']] = year(df[['datetime']])
+    df[['month']] = month(df[['datetime']])
     df[['month.day']] = day(df[['datetime']])
     df[['week.day']] = wday(df[['datetime']])
+    df[['hour']] = hour(df[['datetime']])
+    df[['month.name']] = month(df[['datetime']], label = T)
     df[['week.day.name']] = wday(df[['datetime']], label = T)
-    df[['day.hour']] = hour(df[['datetime']])
     
     return(df)
 }
 
 train.data <- split_date(train.data)
 ```
+
+
 
 Adding new column, temp.div <- temp / atemp
 
@@ -140,6 +147,27 @@ train.data %>% mutate(casual.count = sum(casual),
     mutate(user.prop = user.count / sum(user.count))
     
 ```
+
+### No. of Users by different measures of DateTime (Before Binning)
+
+```{r explore0, fig.height=5, fig.width=10, fig.align='center'}
+count_x_time_plot <- function(df){
+    
+    g1 <- ggplot(data = df, mapping = aes(x = year, y = count/1000)) + 
+                        geom_bar(stat = 'identity')
+    g2 <- ggplot(data = df, mapping = aes(x = month.name, y = count/1000)) + 
+                        geom_bar(stat = 'identity')
+    g3 <- ggplot(data = df, mapping = aes(x = week.day.name, y = count/1000)) + 
+                        geom_bar(stat = 'identity')
+    g4 <- ggplot(data = df, mapping = aes(x = hour, y = count/1000)) + 
+                        geom_bar(stat = 'identity')
+    
+    grid.arrange(g1, g2, g3, g4, nrow = 2, ncol = 2)
+}
+
+count_x_time_plot(train.data)
+```
+
 
 ### No. of Users by Season & Weather
 Lets check the effect of seasons and weather on the users
