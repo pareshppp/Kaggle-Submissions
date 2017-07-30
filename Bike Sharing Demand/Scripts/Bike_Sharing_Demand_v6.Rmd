@@ -6,8 +6,10 @@ output:
         theme: readable
 ---
 
-## Introduction
+# Introduction
 We have to predict the total count of bikes rented during each hour covered by the test set, using only information available prior to the rental period.
+
+We will use Caret package's Random Forest to model the data.
 
 ```{r start, message=FALSE, warning=FALSE}
 require(plyr)
@@ -21,70 +23,33 @@ library(ggcorrplot)
 library(parallel)
 library(doParallel)
 library(gridExtra)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(mosaic)
 ```
 
-```{r read_data}
+# Trial-0
+
+### Data Preparation
+
+```{r t0_read_data}
 train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
 test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
 ```
 
-## Data Pre-processing, Cleaning & Feature Engineering
+Checking data:
 
-```{r pre_process_start, message=FALSE, warning=FALSE, echo=FALSE, include=FALSE}
-str(train.data)
-summary(train.data)
+```{r t0_check_data}
+glimpse(train.data)
+anyNA(train.data)
 ```
 
-One Hot Encoding Season.
+Splitting date:
 
-```{r OHE_season}
-
-OHE_season <- function(df){
-    
-    season.value = 1
-    
-    for (i in c('spring', 'summer', 'fall', 'winter')){
-        
-        df[[i]] <- ifelse(df[['season']] == season.value, 1, 0)
-        season.value <- season.value + 1
-        
-    }
-    
-    return(df)
-}
-
-train.data <- OHE_season(train.data)
-```
-
-Adding weather codes as follows:  
-weather 1: clear_partly_cloudy
-weather 2: mist_cloudy
-weather 3: light_snow_rain_thunderstorm
-weather 4: heavy_snow_rain_ice_fog_thunderstorm
-
-```{r OHE_weather}
-
-OHE_weather <- function(df){
-    
-    weather.value = 1
-    
-    for (i in c('clear_partly_cloudy', 'mist_cloudy', 'light_snow_rain',
-                'heavy_snow_rain')){
-        
-        df[[i]] <- ifelse(df[['weather']] == weather.value, 1, 0)
-        weather.value <- weather.value + 1
-        
-    }
-    
-    return(df)
-}
-
-train.data <- OHE_weather(train.data)
-```
-
-Splitting datetime into year, month, day_num, weekday, hour
-
-```{r split_date}
+```{r t0_split_date}
 
 split_date <- function(df){
     df[['year']] = year(df[['datetime']])
@@ -99,22 +64,12 @@ split_date <- function(df){
 }
 
 train.data <- split_date(train.data)
+test.data <- split_date(test.data)
 ```
 
+Combining holiday and workingday into day.type:
 
-
-Adding new column, temp.div <- temp / atemp
-
-```{r temp_diff}
-train.data <- train.data %>%
-    mutate(temp.div = temp / atemp)
-```
-
-Adding new column, day.type -- 1.holiday, 2.working day or 3.weekend
-
-```{r day_type}
-train.data <- train.data %>%
-    mutate(day.type = NA, day.type.name = NA)
+```{r t0_day_type}
 
 day_type <- function(df){
     df[['day.type']] <- ifelse(df[['holiday']] == 1, 1,
@@ -127,595 +82,2071 @@ day_type <- function(df){
 }
 
 train.data <- day_type(train.data) %>% select(-holiday, -workingday)
-```
-
-Now lets check the data again
-
-```{r pre_process_end}
-summary(train.data)
-```
-
-## Data Exploration
-First lets check the proportion of casual to registered users
-```{r explore_start}
-train.data %>% mutate(casual.count = sum(casual),
-                      registered.count = sum(registered)) %>%
-    select(casual.count, registered.count) %>%
-    distinct() %>%
-    gather(key = user.type, value = user.count, 
-           casual.count:registered.count) %>%
-    mutate(user.prop = user.count / sum(user.count))
-    
-```
-
-### No. of Users by different measures of DateTime (Before Binning)
-
-```{r explore0, fig.height=5, fig.width=10, fig.align='center'}
-count_x_time_plot <- function(df){
-    
-    g1 <- ggplot(data = df, mapping = aes(x = year, y = count/1000)) + 
-                        geom_bar(stat = 'identity')
-    g2 <- ggplot(data = df, mapping = aes(x = month.name, y = count/1000)) + 
-                        geom_bar(stat = 'identity')
-    g3 <- ggplot(data = df, mapping = aes(x = week.day.name, y = count/1000)) + 
-                        geom_bar(stat = 'identity')
-    g4 <- ggplot(data = df, mapping = aes(x = hour, y = count/1000)) + 
-                        geom_bar(stat = 'identity')
-    
-    grid.arrange(g1, g2, g3, g4, nrow = 2, ncol = 2)
-}
-
-count_x_time_plot(train.data)
-```
-
-
-### No. of Users by Season & Weather
-Lets check the effect of seasons and weather on the users
-
-```{r explore1, fig.height=4, fig.width=8, fig.align='center'}
-train.data %>% 
-    select(season.name, weather.type, count) %>% 
-    group_by(season.name, weather.type) %>%
-    mutate(user.count = sum(count)) %>%
-    distinct(season.name, weather.type,user.count) %>%
-    ggplot(mapping = aes(season.name, user.count, fill = weather.type)) +
-    geom_bar(stat = 'identity', width = 0.7) +
-    scale_y_continuous(labels = comma) +
-    coord_flip() +
-    ggtitle('No. of Users by Season & Weather')
-
-```
-
-It seems less people ride bicycles during Spring season than other seasons.
-
-Most people ride during good weather (Clear, Partly Cloudy). Only the most dedicated ride in bad weather (Thunderstorm, Light snow or Rain).
-
-
-### Usage pattern over Days of Week & Hours of Day
-Lets check user count over days of week
-
-```{r explore2, fig.height=5, fig.width=8, fig.align='center'}
-train.data %>%
-    mutate(week.day.name = as.factor(week.day.name), 
-           day.hour = as.factor(day.hour)) %>%
-    select(week.day.name, day.hour, count) %>%
-    group_by(week.day.name, day.hour) %>%
-    mutate(user.count = sum(count)) %>%
-    distinct(week.day.name, day.hour, user.count) %>%
-    ggplot(mapping = aes(x = week.day.name, y = user.count/1000, 
-                         fill = day.hour)) +
-    geom_bar(stat = 'identity') +
-    ylab('No. of users in 1000\'s') +
-    ggtitle(label = 'Usage pattern over Days of Week & Hours of Day', 
-            subtitle = '(User count is in thousands)')
-
-```
-
-The overall user count remains almost same for all 7 day of the week. But clear patterns can be seen for hourly usage on weekdays vs weekends. 
-
-On weekdays the office travel time (7 AM - 10 AM and 6 PM - 9 PM) has most traffic. 
-
-On weekends the 11 AM to 5 PM time has most traffic.
-
-### No. of Users based on Hour of Day over the Years
-Lets check what time of the day most users ride.
-
-```{r explore4, fig.height=8, fig.width=10, fig.align='center'}
-train.data %>%
-    select(day.hour, date.year, count) %>%
-    group_by(day.hour, date.year) %>%
-    mutate(user.count = sum(count)) %>%
-    distinct(day.hour, date.year, user.count) %>%
-    ggplot(mapping = aes(x = day.hour, y = user.count/1000)) +
-    geom_bar(stat = 'identity') +
-    facet_wrap(~ date.year, nrow = 2) + 
-    ylab('No. of users in 1000\'s') +
-    ggtitle(label = 'No. of Users by Hour of Day', 
-            subtitle = '(User count is in thousands)')
-
-```
-
-As expected, most users ride between 6 AM to 11 PM. The bicycle use peaks at 8 AM and between 4 PM to 7 PM. 
-
-There is a consistent level of bicycle use from 7 AM to 8 PM, with only a slight dip at 10 AM. After 8 PM, the usage slowly decreases.
-
-
-### Correlaton between features and User count
-
-Lets see the correlation between numeric features and User count.
-
-```{r explore6, fig.align='center', fig.height=6, fig.width=6}
-train.data %>%
-    select(c(2:7, 13:17, 20:21)) %>%
-    distinct() %>% cor() %>% round(digits = 1) %>%
-    ggcorrplot(method = 'circle', 
-               type = 'full', hc.order = T, lab = T, lab_size = 3, 
-               ggtheme = theme_bw, 
-               title = 'Correlaton between features and User count')
-
-```
-
-User Count seems to have positive correlation to Temperature and negative to humidity.
-
-## Model Training, Prediction & Evaluation - 1
-
-We will use Linear Model, Decision Tree(RPart) & Random Forest to train our models.
-
-First we will Configure parallel processing
-
-```{r parallel_cluster}
-ncluster <- makeCluster(detectCores() - 1)
-registerDoParallel(ncluster)
-```
-
-
-Splitting training and testing datasets
-
-```{r sample_train_test_split}
-# set.seed(777)
-# 
-# sample.train.data <- sample_n(train.data, size = 2000)
-#     
-# inTraining <- createDataPartition(y = sample.train.data$count, 
-#                                   p = 0.75, list = F)
-# training <- sample.train.data[inTraining, ]
-# testing <- sample.train.data[-inTraining, ]
-```
-
-```{r train_test_split}
-set.seed(777)
-
-inTraining <- createDataPartition(y = train.data$count,
-                                  p = 0.75, list = F)
-training <- train.data[inTraining, ]
-testing <- train.data[-inTraining, ]
-```
-
-Choosing Features to use in model
-
-```{r features}
-feature.list <- c(2:7, 13:17, 20:21)
-```
-
-
-Setting train control and grid parameters
-
-```{r train_control}
-tr.ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 5,
-                        verboseIter = T, allowParallel = T)
-
-grid.rf <- expand.grid(.mtry = c(2, 4, 8, 13))
-```
-
-Training models
-
-```{r train_model1, message=FALSE, warning=FALSE }
-set.seed(777)
-fit.lm.casual <- train(x = training[feature.list], y = training$casual, 
-                       method = 'lm', metric = 'RMSE', trControl = tr.ctrl)
-
-set.seed(777)
-fit.lm.reg <- train(x = training[feature.list], y = training$registered, 
-                       method = 'lm', metric = 'RMSE', trControl = tr.ctrl)
-
-set.seed(777)
-fit.lm.count <- train(x = training[feature.list], y = training$count, 
-                       method = 'lm', metric = 'RMSE', trControl = tr.ctrl)
-
-```
-
-```{r train_model2, message=FALSE, warning=FALSE }
-set.seed(777)
-fit.rpart.casual <- train(x = training[feature.list], y = training$casual, 
-                          method = 'rpart', metric = 'RMSE', trControl = tr.ctrl)
-
-set.seed(777)
-fit.rpart.reg <- train(x = training[feature.list], y = training$registered, 
-                          method = 'rpart', metric = 'RMSE', trControl = tr.ctrl)
-
-set.seed(777)
-fit.rpart.count <- train(x = training[feature.list], y = training$count, 
-                          method = 'rpart', metric = 'RMSE', trControl = tr.ctrl)
-```
-
-```{r train_model3, message=FALSE, warning=FALSE }
-set.seed(777)
-fit.rf.casual <- train(x = training[feature.list], y = training$casual, 
-                method = 'rf', metric = 'RMSE', importance = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-
-set.seed(777)
-fit.rf.reg <- train(x = training[feature.list], y = training$registered, 
-                method = 'rf', metric = 'RMSE', importance = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-
-set.seed(777)
-fit.rf.count <- train(x = training[feature.list], y = training$count, 
-                method = 'rf', metric = 'RMSE', importance = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-```
-
-
-Evaluating the models
-
-```{r model_evaluation}
-resamps <- resamples(list(LM.cas = fit.lm.casual,
-                          LM.reg = fit.lm.reg,
-                          LM.count = fit.lm.count, 
-                          RPART.cas = fit.rpart.casual,
-                          RPART.reg = fit.rpart.reg,
-                          RPART.count = fit.rpart.count,
-                          RF.cas = fit.rf.casual,
-                          RF.reg = fit.rf.reg,
-                          RF.count = fit.rf.count))
-summary(resamps)
-```
-
-Random Forest is clearly the best performer.
-
-Variable Importance
-
-```{r variable_importance1}
-varImp(object = fit.rf.casual, scale = T)
-```
-
-```{r variable_importance2}
-varImp(object = fit.rf.reg, scale = T)
-```
-
-```{r variable_importance3}
-varImp(object = fit.rf.count, scale = T)
-```
-
-De-registering parallel processing cluster
-
-```{r parallel_cluster_stop}
-stopCluster(ncluster)
-registerDoSEQ()
-```
-
-Lets run the model on our testing split.
-
-```{r predict}
-predict.rf.casual <- predict(fit.rf.casual, newdata = testing[feature.list])
-predict.rf.reg <- predict(fit.rf.reg, newdata = testing[feature.list])
-predict.rf.count <- predict(fit.rf.count, newdata = testing[feature.list])
-predict.rf.count.add <- predict.rf.casual + predict.rf.reg
-```
-
-Lets evaluate our model
-
-```{r rmse}
-RMSE(pred = predict.rf.count, obs = testing$count)
-```
-
-```{r rmse2}
-RMSE(pred = predict.rf.count.add, obs = testing$count)
-```
-
-## Model Training, Prediction & Evaluation - 2
-
-This time we will remove Features having least variable importance for each model and see if it improves our models.
-
-First we will Configure parallel processing
-
-```{r parallel_cluster_2}
-ncluster <- makeCluster(detectCores() - 1)
-registerDoParallel(ncluster)
-```
-
-
-Splitting training and testing datasets
-
-```{r sample_train_test_split_2}
-# set.seed(777)
-# 
-# sample.train.data <- sample_n(train.data, size = 2000)
-#     
-# inTraining <- createDataPartition(y = sample.train.data$count, 
-#                                   p = 0.75, list = F)
-# training <- sample.train.data[inTraining, ]
-# testing <- sample.train.data[-inTraining, ]
-```
-
-```{r train_test_split_2}
-set.seed(777)
-
-inTraining <- createDataPartition(y = train.data$count,
-                                  p = 0.75, list = F)
-training <- train.data[inTraining, ]
-testing <- train.data[-inTraining, ]
-```
-
-Choosing Features to use in model
-
-```{r features_2}
-feature.list.casual2 <- c(2:7, 13:15, 17, 20:21)
-feature.list.reg2 <- c(2:6, 13:17, 20:21)
-feature.list.count2 <- c(2:6, 13:17, 20:21)
-```
-
-
-Setting train control and grid parameters
-
-```{r train_control_2}
-tr.ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 5,
-                        verboseIter = T, allowParallel = T)
-
-grid.rf <- expand.grid(.mtry = c(6, 8, 10, 12))
-```
-
-Training model
-
-```{r train_model_2, message=FALSE, warning=FALSE }
-set.seed(777)
-fit.rf.casual2 <- train(x = training[feature.list.casual2], y = training$casual, 
-                method = 'rf', metric = 'RMSE', importance = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-
-set.seed(777)
-fit.rf.reg2 <- train(x = training[feature.list.reg2], y = training$registered, 
-                method = 'rf', metric = 'RMSE', importance = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-
-set.seed(777)
-fit.rf.count2 <- train(x = training[feature.list.count2], y = training$count, 
-                method = 'rf', metric = 'RMSE', importance = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-```
-
-
-Evaluating the model
-
-```{r model_evaluation_2}
-resamps <- resamples(list(RF.Casual1 = fit.rf.casual, 
-                          RF.Casual2 = fit.rf.casual2,
-                          RF.Reg1 = fit.rf.reg,
-                          RF.Reg2 = fit.rf.reg2,
-                          RF.Count = fit.rf.count,
-                          RF.Count2 = fit.rf.count2))
-summary(resamps)
-```
-
-By removing the weaker features, the model has improved (except casual).
-
-Variable Importance
-
-```{r variable_importance1_2}
-varImp(object = fit.rf.casual2, scale = T)
-```
-
-```{r variable_importance2_2}
-varImp(object = fit.rf.reg2, scale = T)
-```
-
-```{r variable_importance3_2}
-varImp(object = fit.rf.count2, scale = T)
-```
-
-De-registering parallel processing cluster
-
-```{r parallel_cluster_stop_2}
-stopCluster(ncluster)
-registerDoSEQ()
-```
-
-Lets run the model on our testing split.
-
-```{r predict_2}
-predict.rf.casual2 <- predict(fit.rf.casual2, 
-                              newdata = testing[feature.list.casual2])
-predict.rf.reg2 <- predict(fit.rf.reg2, 
-                           newdata = testing[feature.list.reg2])
-predict.rf.count2 <- predict(fit.rf.count2, 
-                             newdata = testing[feature.list.count2])
-predict.rf.count.add2 <- predict.rf.casual2 + predict.rf.reg2
-```
-
-Lets evaluate our model
-
-```{r rmse_2}
-RMSE(pred = predict.rf.count2, obs = testing$count)
-```
-
-```{r rmse2_2}
-RMSE(pred = predict.rf.count.add2, obs = testing$count)
-```
-
-Looks like calculating Casual and Registered users separately and then adding them to get count gives better result.
-
-## Model Training, Prediction & Evaluation - 3
-
-This time we will try tuning the addition model further and see if it improves our model.
-
-First we will Configure parallel processing.
-
-```{r parallel_cluster_3}
-ncluster <- makeCluster(detectCores() - 1)
-registerDoParallel(ncluster)
-```
-
-
-Splitting training and testing datasets
-
-```{r sample_train_test_split_3}
-# set.seed(777)
-# 
-# sample.train.data <- sample_n(train.data, size = 2000)
-#     
-# inTraining <- createDataPartition(y = sample.train.data$count, 
-#                                   p = 0.75, list = F)
-# training <- sample.train.data[inTraining, ]
-# testing <- sample.train.data[-inTraining, ]
-```
-
-```{r train_test_split_3}
-set.seed(777)
-
-inTraining <- createDataPartition(y = train.data$count,
-                                  p = 0.75, list = F)
-training <- train.data[inTraining, ]
-testing <- train.data[-inTraining, ]
-```
-
-Choosing Features to use in model
-
-```{r features_3}
-feature.list.casual3 <- c(2:7, 13:15, 17, 20:21)
-feature.list.reg3 <- c(2:6, 13:17, 20:21)
-```
-
-
-Setting train control and grid parameters
-
-```{r train_control_3}
-tr.ctrl <- trainControl(method = 'repeatedcv', number = 10, repeats = 10,
-                        verboseIter = T, allowParallel = T)
-
-grid.rf <- expand.grid(.mtry = c(4, 6, 8))
-```
-
-Training model
-
-```{r train_model_3, message=FALSE, warning=FALSE }
-set.seed(777)
-fit.rf.casual3 <- train(x = training[feature.list.casual3], y = training$casual,
-                method = 'rf', metric = 'RMSE', importance = T, verbose = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-
-set.seed(777)
-fit.rf.reg3 <- train(x = training[feature.list.reg3], y = training$registered,
-                method = 'rf', metric = 'RMSE', importance = T, verbose = T,
-                trControl = tr.ctrl, tuneGrid = grid.rf)
-```
-
-
-Evaluating the model
-
-```{r model_evaluation_3}
-resamps1 <- resamples(list(RF.Casual2 = fit.rf.casual2,
-                          RF.Reg3 = fit.rf.reg2))
-summary(resamps1)
-```
-
-```{r model_evaluation_3_2}
-resamps2 <- resamples(list(RF.Casual3 = fit.rf.casual3,
-                          RF.Reg3 = fit.rf.reg3))
-summary(resamps2)
-```
-
-Variable Importance
-
-```{r variable_importance1_3}
-varImp(object = fit.rf.casual3, scale = T)
-```
-
-```{r variable_importance2_3}
-varImp(object = fit.rf.reg3, scale = T)
-```
-
-De-registering parallel processing cluster
-
-```{r parallel_cluster_stop_3}
-stopCluster(ncluster)
-registerDoSEQ()
-```
-
-Lets run the model on our testing split.
-
-```{r predict_3}
-predict.rf.casual3 <- predict(fit.rf.casual3,
-                              newdata = testing[feature.list.casual3])
-predict.rf.reg3 <- predict(fit.rf.reg3,
-                           newdata = testing[feature.list.reg3])
-predict.rf.count.add3 <- predict.rf.casual3 + predict.rf.reg3
-```
-
-
-```{r rmse2_3}
-RMSE(pred = predict.rf.count.add3, obs = testing$count)
-```
-
-Higher crossvalidation did not decrease the RMSE.
-
-## Final Prediction & Submission
-
-We will use model-2 to create our submission.
-
-We need to apply the same pre-processing steps to Test data as we did with Train data.
-
-Splitting datetime into year, month, day_num, day_name, hour
-
-```{r split_date_test}
-test.data <- split_date(test.data)
-```
-
-To avoid Infinite values in temp.div, we will replace atemp = 0 with atemp = 1.
-
-```{r remove_Inf}
-test.data$atemp <- plyr::mapvalues(x = test.data$atemp, 
-                                   from = 0, to = 1)
-```
-
-Adding new column, temp.div <- temp / atemp
-
-```{r temp_div_test}
-test.data <- test.data %>%
-   mutate(temp.div = temp / atemp)
-```
-
-Adding new column, day.type -- working day, holiday or weekend
-
-```{r day_type_test}
 test.data <- day_type(test.data) %>% select(-holiday, -workingday)
 ```
 
-Now that pre-processing the test data is complete, lets run the predict the output.
+Converting to factors:
 
-First, creating feature list for test data
+```{r t0_to_factor}
+train.data[c(2:3, 11:19)] <- 
+    lapply(X = train.data[c(2:3, 11:19)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
 
-```{r features_test}
-feature.list.casual.test <- c(2:9, 11, 14:16)
-feature.list.reg.test <- c(2:6, 8:9, 11:12, 14:16)
+
+test.data[c(2:3, 8:16)] <- 
+    lapply(X = test.data[c(2:3, 8:16)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
 ```
 
-Making Prediction
-
-```{r predict_test}
-predict.rf.casual.test <- predict(fit.rf.casual2,
-                              newdata = test.data[feature.list.casual.test])
-predict.rf.reg.test <- predict(fit.rf.reg2,
-                           newdata = test.data[feature.list.reg.test])
-
-predict.rf.count.add.test <- predict.rf.casual.test + predict.rf.reg.test
+```{r t0_check_data2}
+glimpse(train.data)
 ```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t0_feature_set}
+# names(train.data)
+feature.list <- c(2:7, 11:15, 18)
+```
+
+Creating training and testing splits
+
+```{r t0_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t0_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas0 <- randomForest(x = training[feature.list], y = training$casual,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+set.seed(777)
+fit.rf.reg0 <- randomForest(x = training[feature.list], y = training$registered,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t0_var_imp1}
+tidy(fit.rf.cas0$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t0_var_imp2}
+tidy(fit.rf.reg0$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t0_predict}
+predict.rf.cas <- predict(fit.rf.cas0, newdata = testing[feature.list])
+predict.rf.reg <- predict(fit.rf.reg0, newdata = testing[feature.list])
+predict.rf.count <- predict.rf.casual + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t0_model_eval1}
+RMSE(pred = predict.rf.cas, obs = testing$casual)
+```
+
+```{r t0_model_eval2}
+RMSE(pred = predict.rf.reg, obs = testing$registered)
+```
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t0_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = predict.rf.cas, 
+           predict.reg = predict.rf.reg) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t0_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.casual)) +
+    geom_point() +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t0_error_explore2}
+error.data %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point() +
+    ggtitle('Error Plot - Registered')
+```
+
+The highest error values are for low values for casual and registered. Lets expand the lower end by taking log of casual and registered.
+
+
+# Trial-1
+
+### Data Preparation
+
+```{r t1_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t1_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type:
+
+```{r t1_day_type}
+train.data <- day_type(train.data) %>% select(-holiday, -workingday)
+test.data <- day_type(test.data) %>% select(-holiday, -workingday)
+```
+
+Checking distributions of Casual and Registered:
+
+```{r t1_dist1}
+train.data %>%
+    ggplot(mapping = aes(x = casual)) +
+    geom_histogram(binwidth = 3) +
+    ggtitle('Distribution - Casual')
+```
+
+```{r t1_dist2}
+train.data %>%
+    ggplot(mapping = aes(x = registered)) +
+    geom_histogram(binwidth = 5) +
+    ggtitle('Distribution - Registered')
+```
+
+Both are highly right skewed.
+
+Adding log of casual and registered:
+
+```{r t1_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Checking distributions after log transformation:
+
+```{r t1_dist3}
+train.data %>%
+    ggplot(mapping = aes(x = log.cas)) +
+    geom_density() +
+    ggtitle('Distribution - LogCasual')
+```
+
+```{r t1_dist4}
+train.data %>%
+    ggplot(mapping = aes(x = log.reg)) +
+    geom_density() +
+    ggtitle('Distribution - LogRegistered')
+```
+
+These are more normalized.
+
+Converting to factors:
+
+```{r t1_to_factor}
+train.data[c(2:3, 11:19)] <- 
+    lapply(X = train.data[c(2:3, 11:19)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+
+test.data[c(2:3, 8:16)] <- 
+    lapply(X = test.data[c(2:3, 8:16)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t1_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t1_feature_set}
+# names(train.data)
+feature.list <- c(2:7, 11:15, 18)
+```
+
+Creating training and testing splits
+
+```{r t1_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t1_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas1 <- randomForest(x = training[feature.list], y = training$log.cas,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+set.seed(777)
+fit.rf.reg1 <- randomForest(x = training[feature.list], y = training$log.reg,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t1_var_imp1}
+tidy(fit.rf.cas1$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t1_var_imp2}
+tidy(fit.rf.reg1$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t1_predict}
+predict.rf.cas <- predict(fit.rf.cas1, newdata = testing[feature.list])
+predict.rf.reg <- predict(fit.rf.reg1, newdata = testing[feature.list])
+predict.rf.count <- predict.rf.casual + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t1_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t1_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+The error increased slighty.
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t1_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t1_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.casual)) +
+    geom_point() +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t1_error_explore2}
+error.data %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point() +
+    ggtitle('Error Plot - Registered')
+```
+
+Althought the RMSE increased and there is still high error at lower values, the error amount has decreased.
+
+Lets check the effect of the variables on Error:
+
+```{r t1_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+```{r t1_error_explore4, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+We are getting most of our error as follows:
+
+Casual: Weekend - 10 PM to 8 AM
+        Workingday - 9 PM to 6 AM
+        Holidays - 3 PM to 7 AM
+Registered: Weekend - 3 AM to 8 AM
+            Workingday - 11 PM to 6 AM
+            Holidays - 3 PM to 7 AM
+
+Lets try individual features for each day type and grouping hour of day.
+
+# Trial-2
+
+### Data Preparation
+
+```{r t2_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t2_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type (but keeping holiday and workingday variables):
+
+```{r t2_day_type}
+train.data <- day_type(train.data)
+test.data <- day_type(test.data)
+```
+
+```{r t2_weekend}
+train.data$weekend <- ifelse(train.data$day.type == 3, 1, 0)
+test.data$weekend <- ifelse(test.data$day.type == 3, 1, 0)
+```
+
+Adding log of casual and registered to reduce skewness:
+
+```{r t2_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Using decision tree to divide the hours into separate groups for casual and registered:
+
+```{r t2_dtree_hour_group}
+dtree.hrgroup.cas <- rpart(log.cas ~ hour, data = train.data)
+fancyRpartPlot(dtree.hrgroup.cas)
+```
+
+```{r t2_hour_group1}
+hour_group_cas <- function(df){
+    
+    df[['hour.group.cas']] [df[['hour']] < 1.5] <- '0to1'
+    df[['hour.group.cas']] [df[['hour']] >= 1.5 & df[['hour']] < 6.5] <- '2to6'
+    df[['hour.group.cas']] [df[['hour']] >= 6.5 & df[['hour']] < 7.5] <- '7to7'
+    df[['hour.group.cas']] [df[['hour']] >= 7.5 & df[['hour']] < 10] <- '8to9'
+    df[['hour.group.cas']] [df[['hour']] >= 10 & df[['hour']] < 20] <- '10to19'
+    df[['hour.group.cas']] [df[['hour']] >= 20] <- '20to23'
+    
+    return(df)
+}
+
+train.data <- hour_group_cas(train.data)
+test.data <- hour_group_cas(test.data)
+```
+
+```{r t2_dtree_hour_group2}
+dtree.hrgroup.reg <- rpart(log.reg ~ hour, data = train.data)
+fancyRpartPlot(dtree.hrgroup.reg)
+```
+
+```{r t2_hour_group2}
+hour_group_reg <- function(df){
+    
+    df[['hour.group.reg']] [df[['hour']] < 1.5] <- '0to1'
+    df[['hour.group.reg']] [df[['hour']] >= 1.5 & df[['hour']] < 5.5] <- '2to5'
+    df[['hour.group.reg']] [df[['hour']] >= 5.5 & df[['hour']] < 6.5] <- '6to6'
+    df[['hour.group.reg']] [df[['hour']] >= 6.5 & df[['hour']] < 16] <- '7to15'
+    df[['hour.group.reg']] [df[['hour']] >= 16 & df[['hour']] < 20] <- '16to19'
+    df[['hour.group.reg']] [df[['hour']] >= 20 & df[['hour']] < 22] <- '20to21'
+    df[['hour.group.reg']] [df[['hour']] >= 22] <- '22to23'
+    
+    return(df)
+}
+
+train.data <- hour_group_reg(train.data)
+test.data <- hour_group_reg(test.data)
+```
+
+```{r t2_hour_group3, echo=FALSE}
+# train.data %>% select(hour, hour.group.cas, hour.group.reg) %>% distinct()
+```
+
+Converting to factors:
+
+```{r t2_to_factor}
+# names(train.data)
+train.data[c(2:5, 13:22, 25:26)] <- 
+    lapply(X = train.data[c(2:5, 13:22, 25:26)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+# names(test.data)
+test.data[c(2:5, 10:21)] <- 
+    lapply(X = test.data[c(2:5, 10:21)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t2_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t2_feature_set}
+# names(train.data)
+feature.list.cas <- c(2, 5:9, 13:16, 20, 25)
+feature.list.reg <- c(2, 5:9, 13:16, 20, 26)
+```
+
+Creating training and testing splits
+
+```{r t2_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t2_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas2 <- randomForest(x = training[feature.list.cas], y = training$log.cas,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+set.seed(777)
+fit.rf.reg2 <- randomForest(x = training[feature.list.reg], y = training$log.reg,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t2_var_imp1}
+tidy(fit.rf.cas2$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t2_var_imp2}
+tidy(fit.rf.reg2$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t2_predict}
+predict.rf.cas <- predict(fit.rf.cas2, newdata = testing[feature.list.cas])
+predict.rf.reg <- predict(fit.rf.reg2, newdata = testing[feature.list.reg])
+predict.rf.count <- predict.rf.cas + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t2_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t2_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t2_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t2_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point() +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t2_error_explore2}
+error.data %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point() +
+    ggtitle('Error Plot - Registered')
+```
+
+Lets check the effect of the variables on Error:
+
+```{r t2_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+```{r t2_error_explore4, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+```{r t2_error_explore5}
+error.data %>%
+    select(temp, atemp, humidity, windspeed, log.cas, log.reg) %>%
+    distinct() %>% cor() %>% round(digits = 1) %>%
+    ggcorrplot(method = 'circle', type = 'full', lab_size = 3, lab = T, 
+               hc.order = T)
+```
+
+
+```{r t2_error_explore6}
+error.data %>% 
+    ggplot(aes(x = windspeed, y = error.cas, col = hour.group.cas)) +
+    geom_point(alpha = 1) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0)
+```
+
+```{r t2_error_explore7}
+error.data %>% 
+    ggplot(aes(x = windspeed, y = error.reg, col = hour.group.reg)) +
+    geom_point(alpha = 1) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0)
+```
+
+```{r t2_error_explore8}
+error.data %>% 
+    ggplot(aes(x = humidity, y = error.cas, col = hour.group.cas)) +
+    geom_point(alpha = 0.8) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0)
+```
+
+```{r t2_error_explore9}
+error.data %>% 
+    ggplot(aes(x = humidity, y = error.reg, col = hour.group.reg)) +
+    geom_point(alpha = 0.8) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0)
+```
+
+Most of our error is in the 2-6 AM time period. But after checking out windspeed and humidity variables we see some error patterns:
+1. Error increases as humidity increases.
+2. Error increases as windspeed decreases.
+3. 2-6 AM time period has both high humidity and low windspeed.
+
+
+Lets try to create grouos for windspeed and humidity and see if it helps.
+
+# Trial-3
+
+### Data Preparation
+
+```{r t3_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t3_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type:
+
+```{r t3_day_type}
+train.data <- day_type(train.data)
+test.data <- day_type(test.data)
+```
+
+```{r t3_weekend}
+train.data$weekend <- ifelse(train.data$day.type == 3, 1, 0)
+test.data$weekend <- ifelse(test.data$day.type == 3, 1, 0)
+```
+
+Adding log of casual and registered to reduce skewness:
+
+```{r t3_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Dividing hour into separate groups for casual and registered:
+
+```{r t3_hour_group1}
+train.data <- hour_group_cas(train.data)
+test.data <- hour_group_cas(test.data)
+```
+
+```{r t3_hour_group2}
+train.data <- hour_group_reg(train.data)
+test.data <- hour_group_reg(test.data)
+```
+
+Checking the distributions of Humidity and Windspeed:
+
+```{r t3_dist1}
+train.data %>% ggplot(aes(x = humidity)) + geom_density()
+```
+
+```{r t3_dist2}
+train.data %>% ggplot(aes(x = windspeed)) + geom_density()
+```
+
+Using Decision trees to divide Humidity into groups for casual and registered.
+
+```{r t2_dtree_hum_group1}
+dtree.humgroup.cas <- rpart(log.cas ~ humidity, data = train.data)
+fancyRpartPlot(dtree.humgroup.cas)
+```
+
+```{r t3_humidity_group1}
+hum_group_cas <- function(df){
+    
+    df[['hum.group.cas']] [df[['humidity']] < 46] <- 'lt46'
+    df[['hum.group.cas']] [df[['humidity']] >= 46 & 
+                               df[['humidity']] < 74] <- '46to74'
+    df[['hum.group.cas']] [df[['humidity']] >= 74 & 
+                               df[['humidity']] < 84] <- '74to84'
+    df[['hum.group.cas']] [df[['humidity']] >= 84] <- 'gt84'
+    
+    return(df)
+}
+
+train.data <- hum_group_cas(train.data)
+test.data <- hum_group_cas(test.data)
+```
+
+
+```{r t2_dtree_hum_group2}
+dtree.humgroup.reg <- rpart(log.reg ~ humidity, data = train.data)
+fancyRpartPlot(dtree.humgroup.reg)
+```
+
+```{r t3_humidity_group2}
+hum_group_reg <- function(df){
+    
+    df[['hum.group.reg']] [df[['humidity']] < 46] <- 'lt46'
+    df[['hum.group.reg']] [df[['humidity']] >= 46 & 
+                               df[['humidity']] < 62] <- '46to62'
+    df[['hum.group.reg']] [df[['humidity']] >= 62 & 
+                               df[['humidity']] < 84] <- '62to84'
+    df[['hum.group.reg']] [df[['humidity']] >= 84] <- 'gt84'
+    
+    return(df)
+}
+
+train.data <- hum_group_reg(train.data)
+test.data <- hum_group_reg(test.data)
+```
+
+```{r t3_humidity_group3, include=FALSE}
+# train.data %>% select(humidity, hum.group.cas, hum.group.reg) %>% 
+#     distinct() %>% arrange(humidity)
+```
+
+
+Using Decision trees to divide Windspeed into groups for casual and registered.
+
+```{r t3_dtree_wind_group1}
+dtree.windgroup.cas <- rpart(log.cas ~ windspeed, data = train.data, 
+                             control = rpart.control(cp = 0.0005))
+fancyRpartPlot(dtree.windgroup.cas)
+```
+
+```{r t3_wind_group1}
+wind_group_cas <- function(df){
+    
+    df[['wind.group.cas']] [df[['windspeed']] < 1 ] <- 'lt1'
+    df[['wind.group.cas']] [df[['windspeed']] >= 1 & 
+                               df[['windspeed']] < 6.5] <- '1to6.5'
+    df[['wind.group.cas']] [df[['windspeed']] >= 6.5 & 
+                               df[['windspeed']] < 10] <- '6.5to10'
+    df[['wind.group.cas']] [df[['windspeed']] >= 10 & 
+                               df[['windspeed']] < 14] <- '10to14'
+    df[['wind.group.cas']] [df[['windspeed']] >= 14] <- 'gt14'
+    
+    return(df)
+}
+
+train.data <- wind_group_cas(train.data)
+test.data <- wind_group_cas(test.data)
+```
+
+
+```{r t3_dtree_wind_group2}
+dtree.windgroup.reg <- rpart(log.reg ~ windspeed, data = train.data, 
+                             control = rpart.control(cp = 0.001))
+fancyRpartPlot(dtree.windgroup.reg)
+```
+
+```{r t3_wind_group2}
+wind_group_reg <- function(df){
+    
+    df[['wind.group.reg']] [df[['windspeed']] < 1 ] <- 'lt1'
+    df[['wind.group.reg']] [df[['windspeed']] >= 1 & 
+                               df[['windspeed']] < 6.5] <- '1to6.5'
+    df[['wind.group.reg']] [df[['windspeed']] >= 6.5 & 
+                               df[['windspeed']] < 10] <- '6.5to10'
+    df[['wind.group.reg']] [df[['windspeed']] >= 10 & 
+                               df[['windspeed']] < 14] <- '10to14'
+    df[['wind.group.reg']] [df[['windspeed']] >= 14] <- 'gt14'
+    
+    return(df)
+}
+
+train.data <- wind_group_reg(train.data)
+test.data <- wind_group_reg(test.data)
+```
+
+```{r t3_wind_group3, include=FALSE}
+# train.data %>% select(windspeed, wind.group.cas, wind.group.reg) %>%
+#     distinct() %>% arrange(windspeed)
+```
+
+Converting to factors:
+
+```{r t3_to_factor}
+# names(train.data)
+train.data[c(2:5, 13:22, 25:30)] <- 
+    lapply(X = train.data[c(2:5, 13:22, 25:30)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+# names(test.data)
+test.data[c(2:5, 10:25)] <- 
+    lapply(X = test.data[c(2:5, 10:25)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t3_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t3_feature_set}
+# names(train.data)
+feature.list.cas <- c(2, 5:7, 13:16, 20, 25, 27, 29)
+feature.list.reg <- c(2, 5:7, 13:16, 20, 26, 28, 30)
+```
+
+Creating training and testing splits
+
+```{r t3_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t3_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas3 <- randomForest(x = training[feature.list.cas], y = training$log.cas,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+set.seed(777)
+fit.rf.reg3 <- randomForest(x = training[feature.list.reg], y = training$log.reg,
+                               ntree = 500, mtry = c(3, 6, 12), importance = T,
+                               do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t3_var_imp1}
+tidy(fit.rf.cas3$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t3_var_imp2}
+tidy(fit.rf.reg3$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t3_predict}
+predict.rf.cas <- predict(fit.rf.cas3, newdata = testing[feature.list.cas])
+predict.rf.reg <- predict(fit.rf.reg3, newdata = testing[feature.list.reg])
+predict.rf.count <- predict.rf.cas + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t3_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t3_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t3_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t3_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point() +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t3_error_explore2}
+error.data %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point() +
+    ggtitle('Error Plot - Registered')
+```
+
+Lets check the effect of the variables on Error:
+
+```{r t3_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+```{r t3_error_explore4, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+
+There is no obvious improvement. Lets try to remove the weker variables - wether and windspeed.
+
+# Trial-4
+
+### Data Preparation
+
+```{r t4_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t4_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type:
+
+```{r t4_day_type}
+train.data <- day_type(train.data)
+test.data <- day_type(test.data)
+```
+
+```{r t4_weekend}
+train.data$weekend <- ifelse(train.data$day.type == 3, 1, 0)
+test.data$weekend <- ifelse(test.data$day.type == 3, 1, 0)
+```
+
+Adding log of casual and registered to reduce skewness:
+
+```{r t4_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Dividing hour into separate groups for casual and registered:
+
+```{r t4_hour_group1}
+train.data <- hour_group_cas(train.data)
+test.data <- hour_group_cas(test.data)
+```
+
+```{r t4_hour_group2}
+train.data <- hour_group_reg(train.data)
+test.data <- hour_group_reg(test.data)
+```
+
+
+Dividing humidity into separate groups for casual and registered:
+
+```{r t4_humidity_group1}
+train.data <- hum_group_cas(train.data)
+test.data <- hum_group_cas(test.data)
+```
+
+```{r t4_humidity_group2}
+train.data <- hum_group_reg(train.data)
+test.data <- hum_group_reg(test.data)
+```
+
+```{r t4_humidity_group3, include=FALSE}
+# train.data %>% select(humidity, hum.group.cas, hum.group.reg) %>% 
+#     distinct() %>% arrange(humidity)
+```
+
+
+Dividing windspeed into separate groups for casual and registered:
+
+```{r t4_wind_group1}
+train.data <- wind_group_cas(train.data)
+test.data <- wind_group_cas(test.data)
+```
+
+```{r t4_wind_group2}
+train.data <- wind_group_reg(train.data)
+test.data <- wind_group_reg(test.data)
+```
+
+```{r t4_wind_group3, include=FALSE}
+# train.data %>% select(windspeed, wind.group.cas, wind.group.reg) %>%
+#     distinct() %>% arrange(windspeed)
+```
+
+Converting to factors:
+
+```{r t4_to_factor}
+# names(train.data)
+train.data[c(2:5, 13:22, 25:30)] <- 
+    lapply(X = train.data[c(2:5, 13:22, 25:30)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+# names(test.data)
+test.data[c(2:5, 10:25)] <- 
+    lapply(X = test.data[c(2:5, 10:25)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t4_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t4_feature_set}
+# names(train.data)
+feature.list.cas <- c(2, 6:8, 13:16, 20, 25, 27)
+feature.list.reg <- c(2, 6:8, 13:16, 20, 26, 28)
+```
+
+Creating training and testing splits
+
+```{r t4_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t4_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas4 <- randomForest(x = training[feature.list.cas], y = training$log.cas,
+                               ntree = 500, mtry = c(3, 6, 9), importance = T,
+                               do.trace = T)
+set.seed(777)
+fit.rf.reg4 <- randomForest(x = training[feature.list.reg], y = training$log.reg,
+                               ntree = 500, mtry = c(3, 6, 9), importance = T,
+                               do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t4_var_imp1}
+tidy(fit.rf.cas4$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t4_var_imp2}
+tidy(fit.rf.reg4$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t4_predict}
+predict.rf.cas <- predict(fit.rf.cas4, newdata = testing[feature.list.cas])
+predict.rf.reg <- predict(fit.rf.reg4, newdata = testing[feature.list.reg])
+predict.rf.count <- predict.rf.cas + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t4_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t4_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t4_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t4_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t4_error_explore2}
+error.data %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Registered')
+```
+
+Lets check the effect of the variables on Error:
+
+```{r t4_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name + month.day)
+```
+
+```{r t4_error_explore4, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name + month)
+```
+
+Still not much improvement.  Lets try adding some new features.
+
+# Trial-5
+
+### Data Preparation
+
+```{r t5_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t5_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type:
+
+```{r t5_day_type}
+train.data <- day_type(train.data)
+test.data <- day_type(test.data)
+```
+
+```{r t5_weekend}
+train.data$weekend <- ifelse(train.data$day.type == 3, 1, 0)
+test.data$weekend <- ifelse(test.data$day.type == 3, 1, 0)
+```
+
+Adding log of casual and registered to reduce skewness:
+
+```{r t5_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Dividing hour into separate groups for casual and registered:
+
+```{r t5_hour_group1}
+train.data <- hour_group_cas(train.data)
+test.data <- hour_group_cas(test.data)
+```
+
+```{r t5_hour_group2}
+train.data <- hour_group_reg(train.data)
+test.data <- hour_group_reg(test.data)
+```
+
+
+Dividing humidity into separate groups for casual and registered:
+
+```{r t5_humidity_group1}
+train.data <- hum_group_cas(train.data)
+test.data <- hum_group_cas(test.data)
+```
+
+```{r t5_humidity_group2}
+train.data <- hum_group_reg(train.data)
+test.data <- hum_group_reg(test.data)
+```
+
+```{r t5_humidity_group3, include=FALSE}
+# train.data %>% select(humidity, hum.group.cas, hum.group.reg) %>% 
+#     distinct() %>% arrange(humidity)
+```
+
+
+Dividing windspeed into separate groups for casual and registered:
+
+```{r t5_wind_group1}
+train.data <- wind_group_cas(train.data)
+test.data <- wind_group_cas(test.data)
+```
+
+```{r t5_wind_group2}
+train.data <- wind_group_reg(train.data)
+test.data <- wind_group_reg(test.data)
+```
+
+```{r t5_wind_group3, include=FALSE}
+# train.data %>% select(windspeed, wind.group.cas, wind.group.reg) %>%
+#     distinct() %>% arrange(windspeed)
+```
+
+Dividing atemp into separate groups for casual and registered:
+
+```{r t5_dtree_atemp_group1}
+dtree.atemp.grp.cas <- rpart(log.cas ~ atemp, data = train.data)
+fancyRpartPlot(dtree.atemp.grp.cas)
+```
+
+```{r t5_atemp_group1}
+atemp_group_cas <- function(df){
+    
+    df[['atemp.group.cas']] [df[['atemp']] < 15] <- 'lt15'
+    df[['atemp.group.cas']] [df[['atemp']] >= 15 & 
+                               df[['atemp']] < 19] <- '15to19'
+    df[['atemp.group.cas']] [df[['atemp']] >= 19 & 
+                               df[['atemp']] < 30] <- '19to30'
+    df[['atemp.group.cas']] [df[['atemp']] >= 30] <- 'gt30'
+    
+    return(df)
+}
+
+train.data <- atemp_group_cas(train.data)
+test.data <- atemp_group_cas(test.data)
+```
+
+```{r t5_dtree_atemp_group2}
+dtree.atemp.grp.reg <- rpart(log.reg ~ atemp, data = train.data)
+fancyRpartPlot(dtree.atemp.grp.reg)
+```
+
+```{r t5_atemp_group2}
+atemp_group_reg <- function(df){
+    
+    df[['atemp.group.reg']] [df[['atemp']] < 14] <- 'lt14'
+    df[['atemp.group.reg']] [df[['atemp']] >= 14 & 
+                               df[['atemp']] < 30] <- '14to30'
+    df[['atemp.group.reg']] [df[['atemp']] >= 30] <- 'gt30'
+    
+    return(df)
+}
+
+train.data <- atemp_group_reg(train.data)
+test.data <- atemp_group_reg(test.data)
+```
+
+```{r t5_atemp_group3}
+# train.data %>% select(atemp, atemp.group.cas, atemp.group.reg) %>%
+#     distinct() %>% arrange(atemp)
+```
+
+
+Adding new features:
+
+```{r t5_new_features}
+train.data$z.humidity2 <- zscore(train.data$humidity^2)
+train.data$z.windspeed0.5 <- zscore(sqrt(train.data$windspeed))
+train.data$hourgrp.daytype.cas <- paste(train.data$hour.group.cas, 
+                                        train.data$day.type, sep = ':')
+train.data$hourgrp.daytype.reg <- paste(train.data$hour.group.reg, 
+                                        train.data$day.type, sep = ':')
+train.data$hourgrp.atemp.cas <- paste(train.data$hour.group.cas, 
+                                        train.data$atemp.group.cas, sep = ':')
+train.data$hourgrp.atemp.reg <- paste(train.data$hour.group.reg, 
+                                        train.data$atemp.group.reg, sep = ':')
+
+test.data$z.humidity2 <- zscore(test.data$humidity^2)
+test.data$z.windspeed0.5 <- zscore(sqrt(test.data$windspeed))
+test.data$hourgrp.daytype.cas <- paste(test.data$hour.group.cas, 
+                                   test.data$day.type, sep = ':')
+test.data$hourgrp.daytype.reg <- paste(test.data$hour.group.reg, 
+                                   test.data$day.type, sep = ':')
+test.data$hourgrp.atemp.cas <- paste(test.data$hour.group.cas, 
+                                   test.data$atemp.group.cas, sep = ':')
+test.data$hourgrp.atemp.reg <- paste(test.data$hour.group.reg, 
+                                   test.data$atemp.group.reg, sep = ':')
+```
+
+
+Converting to factors:
+
+```{r t5_to_factor}
+# names(train.data)
+train.data[c(2:5, 13:22, 25:30, 33:38)] <- 
+    lapply(X = train.data[c(2:5, 13:22, 25:30, 33:38)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+# names(test.data)
+test.data[c(2:5, 10:25, 28:33)] <- 
+    lapply(X = test.data[c(2:5, 10:25, 28:33)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t5_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t5_feature_set}
+# names(train.data)
+feature.list.cas <- c(2, 6:7, 13:16, 20, 25, 27, 31:32, 33, 35, 37)
+feature.list.reg <- c(2, 6:7, 13:16, 20, 26, 28, 31:32, 34, 36, 38)
+# length(feature.list.cas)
+```
+
+Creating training and testing splits
+
+```{r t5_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t5_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas5 <- randomForest(x = training[feature.list.cas], y = training$log.cas,
+                               ntree = 500, mtry = c(4, 8, 15), importance = T,
+                               do.trace = T)
+set.seed(777)
+fit.rf.reg5 <- randomForest(x = training[feature.list.reg], y = training$log.reg,
+                               ntree = 500, mtry = c(4, 8, 15), importance = T,
+                               do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t5_var_imp1}
+tidy(fit.rf.cas5$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t5_var_imp2}
+tidy(fit.rf.reg5$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t5_predict}
+predict.rf.cas <- predict(fit.rf.cas5, newdata = testing[feature.list.cas])
+predict.rf.reg <- predict(fit.rf.reg5, newdata = testing[feature.list.reg])
+predict.rf.count <- predict.rf.cas + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t5_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t5_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t5_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t5_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t5_error_explore2}
+error.data %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Registered')
+```
+
+Lets check the effect of the variables on Error:
+
+```{r t5_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hourgrp.daytype.cas, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ month.name)
+```
+
+```{r t5_error_explore4, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ month)
+```
+
+Only slight improvement. Lets try removing features.
+
+# Trial-6
+
+### Data Preparation
+
+```{r t6_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t6_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type:
+
+```{r t6_day_type}
+train.data <- day_type(train.data)
+test.data <- day_type(test.data)
+```
+
+```{r t6_weekend}
+train.data$weekend <- ifelse(train.data$day.type == 3, 1, 0)
+test.data$weekend <- ifelse(test.data$day.type == 3, 1, 0)
+```
+
+Adding log of casual and registered to reduce skewness:
+
+```{r t6_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Dividing hour into separate groups for casual and registered:
+
+```{r t6_hour_group1}
+train.data <- hour_group_cas(train.data)
+test.data <- hour_group_cas(test.data)
+```
+
+```{r t6_hour_group2}
+train.data <- hour_group_reg(train.data)
+test.data <- hour_group_reg(test.data)
+```
+
+
+Dividing humidity into separate groups for casual and registered:
+
+```{r t6_humidity_group1}
+train.data <- hum_group_cas(train.data)
+test.data <- hum_group_cas(test.data)
+```
+
+```{r t6_humidity_group2}
+train.data <- hum_group_reg(train.data)
+test.data <- hum_group_reg(test.data)
+```
+
+```{r t6_humidity_group3, include=FALSE}
+# train.data %>% select(humidity, hum.group.cas, hum.group.reg) %>% 
+#     distinct() %>% arrange(humidity)
+```
+
+
+Dividing windspeed into separate groups for casual and registered:
+
+```{r t6_wind_group1}
+train.data <- wind_group_cas(train.data)
+test.data <- wind_group_cas(test.data)
+```
+
+```{r t6_wind_group2}
+train.data <- wind_group_reg(train.data)
+test.data <- wind_group_reg(test.data)
+```
+
+```{r t6_wind_group3, include=FALSE}
+# train.data %>% select(windspeed, wind.group.cas, wind.group.reg) %>%
+#     distinct() %>% arrange(windspeed)
+```
+
+Dividing atemp into separate groups for casual and registered:
+
+```{r t6_atemp_group1}
+train.data <- atemp_group_cas(train.data)
+test.data <- atemp_group_cas(test.data)
+```
+
+```{r t6_atemp_group2}
+train.data <- atemp_group_reg(train.data)
+test.data <- atemp_group_reg(test.data)
+```
+
+```{r t6_atemp_group3}
+# train.data %>% select(atemp, atemp.group.cas, atemp.group.reg) %>%
+#     distinct() %>% arrange(atemp)
+```
+
+
+Adding new features:
+
+```{r t6_new_features}
+train.data$z.humidity2 <- zscore(train.data$humidity^2)
+train.data$z.windspeed0.5 <- zscore(sqrt(train.data$windspeed))
+train.data$hourgrp.daytype.cas <- paste(train.data$hour.group.cas, 
+                                        train.data$day.type, sep = ':')
+train.data$hourgrp.daytype.reg <- paste(train.data$hour.group.reg, 
+                                        train.data$day.type, sep = ':')
+train.data$hourgrp.atemp.cas <- paste(train.data$hour.group.cas, 
+                                        train.data$atemp.group.cas, sep = ':')
+train.data$hourgrp.atemp.reg <- paste(train.data$hour.group.reg, 
+                                        train.data$atemp.group.reg, sep = ':')
+
+test.data$z.humidity2 <- zscore(test.data$humidity^2)
+test.data$z.windspeed0.5 <- zscore(sqrt(test.data$windspeed))
+test.data$hourgrp.daytype.cas <- paste(test.data$hour.group.cas, 
+                                   test.data$day.type, sep = ':')
+test.data$hourgrp.daytype.reg <- paste(test.data$hour.group.reg, 
+                                   test.data$day.type, sep = ':')
+test.data$hourgrp.atemp.cas <- paste(test.data$hour.group.cas, 
+                                   test.data$atemp.group.cas, sep = ':')
+test.data$hourgrp.atemp.reg <- paste(test.data$hour.group.reg, 
+                                   test.data$atemp.group.reg, sep = ':')
+```
+
+
+Converting to factors:
+
+```{r t6_to_factor}
+# names(train.data)
+train.data[c(2:5, 13:22, 25:32, 35:38)] <- 
+    lapply(X = train.data[c(2:5, 13:22, 25:32, 35:38)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+# names(test.data)
+test.data[c(2:5, 10:27, 30:33)] <- 
+    lapply(X = test.data[c(2:5, 10:27, 30:33)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t6_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t6_feature_set}
+names(train.data)
+feature.list.cas <- c(2, 4:9, 13:18, 20, 22, 25, 27, 31, 35, 37)
+feature.list.reg <- c(2, 4:7, 13, 16:18, 20, 22, 26, 32, 33, 36, 38)
+length(feature.list.cas)
+length(feature.list.reg)
+```
+
+Creating training and testing splits
+
+```{r t6_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Fitting Models:
+
+```{r t6_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas6 <- randomForest(x = training[feature.list.cas], y = training$log.cas,
+                            ntree = 1000, mtry = c(2, 4, 8, 20), 
+                            importance = T, do.trace = T)
+set.seed(777)
+fit.rf.reg6 <- randomForest(x = training[feature.list.reg], y = training$log.reg,
+                            ntree = 1000, mtry = c(2, 4, 8, 16), 
+                            importance = T, do.trace = T)
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t6_var_imp1}
+tidy(fit.rf.cas6$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t6_var_imp2}
+tidy(fit.rf.reg6$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t6_predict}
+predict.rf.cas <- predict(fit.rf.cas6, newdata = testing[feature.list.cas])
+predict.rf.reg <- predict(fit.rf.reg6, newdata = testing[feature.list.reg])
+predict.rf.count <- predict.rf.cas + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t6_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t6_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+```{r t6_model_eval3}
+RMSE(pred = expm1(predict.rf.cas) + expm1(predict.rf.reg) , 
+     obs = testing$count)
+```
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t6_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t6_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t6_error_explore2}
+error.data %>% filter(error.reg < 500) %>%
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Registered')
+```
+
+Lets check the effect of the variables on Error:
+
+```{r t6_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+```{r t6_error_explore4, fig.height=6, fig.width=12}
+error.data %>% filter(error.reg < 500) %>%
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+Finally, Some improvement. Lets put it into cross-validation.
+
+# Trial-7
+
+### Data Preparation
+
+```{r t7_read_data}
+train.data <- tbl_df(read.csv('../Input/train.csv', stringsAsFactors = F))
+test.data <- tbl_df(read.csv('../Input/test.csv', stringsAsFactors = F))
+```
+
+Splitting date:
+
+```{r t7_split_date}
+train.data <- split_date(train.data)
+test.data <- split_date(test.data)
+```
+
+Combining holiday and workingday into day.type:
+
+```{r t7_day_type}
+train.data <- day_type(train.data)
+test.data <- day_type(test.data)
+```
+
+```{r t7_weekend}
+train.data$weekend <- ifelse(train.data$day.type == 3, 1, 0)
+test.data$weekend <- ifelse(test.data$day.type == 3, 1, 0)
+```
+
+Adding log of casual and registered to reduce skewness:
+
+```{r t7_log_conv}
+train.data$log.cas <- log(train.data$casual + 1)
+train.data$log.reg <- log(train.data$registered + 1)
+```
+
+Dividing hour into separate groups for casual and registered:
+
+```{r t7_hour_group1}
+train.data <- hour_group_cas(train.data)
+test.data <- hour_group_cas(test.data)
+```
+
+```{r t7_hour_group2}
+train.data <- hour_group_reg(train.data)
+test.data <- hour_group_reg(test.data)
+```
+
+
+Dividing humidity into separate groups for casual and registered:
+
+```{r t7_humidity_group1}
+train.data <- hum_group_cas(train.data)
+test.data <- hum_group_cas(test.data)
+```
+
+```{r t7_humidity_group2}
+train.data <- hum_group_reg(train.data)
+test.data <- hum_group_reg(test.data)
+```
+
+```{r t7_humidity_group3, include=FALSE}
+# train.data %>% select(humidity, hum.group.cas, hum.group.reg) %>% 
+#     distinct() %>% arrange(humidity)
+```
+
+
+Dividing windspeed into separate groups for casual and registered:
+
+```{r t7_wind_group1}
+train.data <- wind_group_cas(train.data)
+test.data <- wind_group_cas(test.data)
+```
+
+```{r t7_wind_group2}
+train.data <- wind_group_reg(train.data)
+test.data <- wind_group_reg(test.data)
+```
+
+```{r t7_wind_group3, include=FALSE}
+# train.data %>% select(windspeed, wind.group.cas, wind.group.reg) %>%
+#     distinct() %>% arrange(windspeed)
+```
+
+Dividing atemp into separate groups for casual and registered:
+
+```{r t7_atemp_group1}
+train.data <- atemp_group_cas(train.data)
+test.data <- atemp_group_cas(test.data)
+```
+
+```{r t7_atemp_group2}
+train.data <- atemp_group_reg(train.data)
+test.data <- atemp_group_reg(test.data)
+```
+
+```{r t7_atemp_group3}
+# train.data %>% select(atemp, atemp.group.cas, atemp.group.reg) %>%
+#     distinct() %>% arrange(atemp)
+```
+
+
+Adding new features:
+
+```{r t7_new_features}
+train.data$z.humidity2 <- zscore(train.data$humidity^2)
+train.data$z.windspeed0.5 <- zscore(sqrt(train.data$windspeed))
+train.data$hourgrp.daytype.cas <- paste(train.data$hour.group.cas, 
+                                        train.data$day.type, sep = ':')
+train.data$hourgrp.daytype.reg <- paste(train.data$hour.group.reg, 
+                                        train.data$day.type, sep = ':')
+train.data$hourgrp.atemp.cas <- paste(train.data$hour.group.cas, 
+                                        train.data$atemp.group.cas, sep = ':')
+train.data$hourgrp.atemp.reg <- paste(train.data$hour.group.reg, 
+                                        train.data$atemp.group.reg, sep = ':')
+
+test.data$z.humidity2 <- zscore(test.data$humidity^2)
+test.data$z.windspeed0.5 <- zscore(sqrt(test.data$windspeed))
+test.data$hourgrp.daytype.cas <- paste(test.data$hour.group.cas, 
+                                   test.data$day.type, sep = ':')
+test.data$hourgrp.daytype.reg <- paste(test.data$hour.group.reg, 
+                                   test.data$day.type, sep = ':')
+test.data$hourgrp.atemp.cas <- paste(test.data$hour.group.cas, 
+                                   test.data$atemp.group.cas, sep = ':')
+test.data$hourgrp.atemp.reg <- paste(test.data$hour.group.reg, 
+                                   test.data$atemp.group.reg, sep = ':')
+```
+
+
+Converting to factors:
+
+```{r t7_to_factor}
+# names(train.data)
+train.data[c(2:5, 13:22, 25:32, 35:38)] <- 
+    lapply(X = train.data[c(2:5, 13:22, 25:32, 35:38)], FUN = factor)
+train.data$month.day <- factor(x = train.data$month.day, 
+                               levels = as.character(1:31))
+
+# names(test.data)
+test.data[c(2:5, 10:27, 30:33)] <- 
+    lapply(X = test.data[c(2:5, 10:27, 30:33)], FUN = factor)
+test.data$month.day <- factor(x = test.data$month.day, 
+                               levels = as.character(1:31))
+```
+
+```{r t7_check_data2}
+glimpse(train.data)
+```
+
+
+### Model Fitting
+
+Creating feature set:
+
+```{r t7_feature_set}
+names(train.data)
+feature.list.cas <- c(2:9, 13:22, 25, 27, 29, 31, 33:34, 35, 37)
+feature.list.reg <- c(2:9, 13:22, 26, 28, 30, 32, 33:34, 36, 38)
+length(feature.list.cas)
+length(feature.list.reg)
+```
+
+Creating training and testing splits
+
+```{r t7_data_part}
+set.seed(777)
+inTraining <- createDataPartition(y = train.data$count, p = 0.75, list = F)
+
+training <- train.data[inTraining, ]
+testing <- train.data[-inTraining, ]
+```
+
+Control Parameters:
+
+```{r t7_control_par}
+tr.control <- trainControl(method = 'repeatedcv', number = 5, repeats = 5, 
+                           verboseIter = T, allowParallel = T, p = 0.75)
+tune.grid.cas <- expand.grid(mtry = c(2, 5, 10, 15, 26))
+tune.grid.reg <- expand.grid(mtry = c(2, 5, 10, 15, 26))
+```
+
+Starting Cluster:
+
+```{r t7_start_cluster}
+# ncluster <- makeCluster(detectCores() - 1)
+# registerDoParallel(ncluster)
+```
+
+Fitting Models:
+
+```{r t7_model_fit, results='hide'}
+set.seed(777)
+fit.rf.cas7 <- train(x = training[feature.list.cas], y = training$log.cas, 
+                     method = 'rf', metric = 'RMSE', #trControl = tr.control,  
+                     tuneGrid = tune.grid.cas, importance = T, do.trace = T, 
+                     ntree = 500)
+set.seed(777)
+fit.rf.reg7 <- train(x = training[feature.list.reg], y = training$log.reg, 
+                     method = 'rf', metric = 'RMSE', #trControl = tr.control, 
+                     tuneGrid = tune.grid.reg, importance = T, do.trace = T, 
+                     ntree = 500)
+```
+
+DStopping cluster:
+
+```{r t7_stop_cluster}
+# stopCluster(ncluster)
+# registerDoSEQ()
+```
+
+### Model Evaluation
+
+feature importance:
+
+```{r t7_var_imp1}
+tidy(fit.rf.cas7$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+```{r t7_var_imp2}
+tidy(fit.rf.reg7$importance) %>%
+    mutate(importance = fmsb::percentile(X.IncMSE)) %>%
+    select(.rownames, importance) %>%
+    arrange(desc(importance))
+```
+
+Lets run the model on our testing split.
+
+```{r t7_predict}
+predict.rf.cas <- predict(fit.rf.cas7, newdata = testing[feature.list.cas])
+predict.rf.reg <- predict(fit.rf.reg7, newdata = testing[feature.list.reg])
+predict.rf.count <- predict.rf.cas + predict.rf.reg
+```
+
+Scoring the models:
+
+```{r t7_model_eval1}
+RMSE(pred = expm1(predict.rf.cas), obs = testing$casual)
+```
+
+```{r t7_model_eval2}
+RMSE(pred = expm1(predict.rf.reg), obs = testing$registered)
+```
+
+```{r t7_model_eval3}
+RMSE(pred = expm1(predict.rf.cas) + expm1(predict.rf.reg) , 
+     obs = testing$count)
+```
+
+### Error Discovery
+
+Creating Error data:
+
+```{r t7_error_data}
+error.data <- testing %>%
+    mutate(predict.cas = expm1(predict.rf.cas), 
+           predict.reg = expm1(predict.rf.reg)) %>%
+    mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
+           error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
+
+```
+
+Exploring Error data:
+
+```{r t7_error_explore1}
+error.data %>% 
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Casual')
+```
+
+```{r t7_error_explore2}
+error.data %>% filter(error.reg < 500) %>%
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Registered')
+```
+
+Lets check the effect of the variables on Error:
+
+```{r t7_error_explore3, fig.height=6, fig.width=12}
+error.data %>% 
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+```{r t7_error_explore4, fig.height=6, fig.width=12}
+error.data %>% filter(error.reg < 500) %>%
+    mutate(hour = factor(hour, levels = as.character(0:23))) %>%
+    ggplot(aes(x = hour, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    geom_abline(intercept = 50, slope = 0) +
+    geom_abline(intercept = -50, slope = 0) +
+    facet_wrap(~ day.type.name)
+```
+
+
+# Submission
 
 Creating Submission Files
 
 ```{r Submission}
-test.data$count <- predict.rf.count.add.test
+test.data$count <- predict.rf.count
 
 test.data %>% select(datetime, count) %>%
-    write.csv(file = './Output/submit_sample_count_add_mod2.csv',
+    write.csv(file = '../Output/submit_count.csv',
               quote = F, row.names = F)
 ```
+
+
+Saving Image:
+
+```{r save_image}
+save.image(file = "../RData_Files/Bike_Sharing_Demand_v6.RData")
+```
+
+
+
+
+

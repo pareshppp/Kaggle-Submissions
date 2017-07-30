@@ -36,6 +36,7 @@ count - number of total rentals
 3. RandomForest, Decision Trees and LM with features as factors. [ERROR - New levels in test data.]  
 4. RandomForest, Decision Trees and LM with all features as numbers. Small sample of original data for modeling. [WRONG - Categorical features have Ordinality]  
 5. RandomForest, Decision Trees and LM with all features as numbers. Full data for modeling. [WRONG - Categorical features have Ordinality]  
-6. RandomForest (without OHE), XGBoost and Neural Net with One-Hot-Encoding (OHE) and engineered features. Small sample of original data for modeling.  
+6. RandomForest using Trial-Error-Improve method. Full data for modeling.  
+RF. RandomForest using Trial-Error-Improve method. Full data for modeling. k-Fold Cross validation  
 
 
