@@ -29,14 +29,15 @@ registered - number of registered user rentals initiated
 count - number of total rentals  
 
 
-## Notebook Files - Bike_Sharing_Demand_v*.Rmd:
+## Notebook Files - Bike_Sharing_Demand_*.Rmd:
 
-1. Rough [ERROR]  
-2. Rough [ERROR]  
-3. RandomForest, Decision Trees and LM with features as factors. [ERROR - New levels in test data.]  
-4. RandomForest, Decision Trees and LM with all features as numbers. Small sample of original data for modeling. [WRONG - Categorical features have Ordinality]  
-5. RandomForest, Decision Trees and LM with all features as numbers. Full data for modeling. [WRONG - Categorical features have Ordinality]  
-6. RandomForest using Trial-Error-Improve method. Full data for modeling.  
+v1. Rough [ERROR]  
+v2. Rough [ERROR]  
+v3. RandomForest, Decision Trees and LM with features as factors. [ERROR - New levels in test data.]  
+v4. RandomForest, Decision Trees and LM with all features as numbers. Small sample of original data for modeling. [WRONG - Categorical features have Ordinality]  
+v5. RandomForest, Decision Trees and LM with all features as numbers. Full data for modeling. [WRONG - Categorical features have Ordinality]  
+v6. RandomForest using Trial-Error-Improve method. Full data for modeling.  
 RF. RandomForest using Trial-Error-Improve method. Full data for modeling. k-Fold Cross validation  
+NNET. Neural Network using Trial-Error-Improve method. Full data for modeling. k-Fold Cross validation  
 
 
