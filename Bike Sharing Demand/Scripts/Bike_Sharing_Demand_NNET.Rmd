@@ -31,7 +31,8 @@ library(rattle)
 library(mosaic)
 library(GGally)
 library(devtools)
-source_url('https://gist.githubusercontent.com/fawda123/7471137/raw/466c1474d0a505ff044412703516c34f1a4684a5/nnet_plot_update.r')
+library(NeuralNetTools)
+library(nnet)
 
 ```
 
@@ -577,8 +578,10 @@ Control Parameters:
 ```{r t1_control_par}
 tr.control <- trainControl(method = 'cv', number = 5,   
                            verboseIter = T, allowParallel = T)
-tune.grid.cas <- expand.grid(.size = c(4, 5, 6, 7), .decay = c(0.05, 0.1, 0.5))
-tune.grid.reg <- expand.grid(.size = c(4, 5, 6, 7), .decay = c(0.05, 0.1, 0.5))
+# tune.grid.cas <- expand.grid(.size = c(4, 5, 6, 7), .decay = c(0.05, 0.1, 0.5))
+# tune.grid.reg <- expand.grid(.size = c(4, 5, 6, 7), .decay = c(0.05, 0.1, 0.5))
+tune.grid.cas <- expand.grid(.size = c(12, 18, 24), .decay = c(0.05, 0.1, 0.5))
+tune.grid.reg <- expand.grid(.size = c(12, 18, 24), .decay = c(0.05, 0.1, 0.5))
 ```
 
 Starting Cluster:
@@ -634,7 +637,7 @@ fit.nnet.reg2 <- train(x = train.data[feature.list.reg],
 ```
 
 
-```{r t1_model_fit5, results='hide'}
+```{r t1_model_fit5, results='hide', eval=FALSE}
 set.seed(777)
 fit.nnet.cas3 <- train(x = train.data[feature.list.cas], 
                      y = train.data$cas.cbrt / max(train.data$cas.cbrt),
@@ -646,7 +649,7 @@ fit.nnet.cas3 <- train(x = train.data[feature.list.cas],
                      )
 ```
 
-```{r t1_model_fit6, results='hide'}
+```{r t1_model_fit6, results='hide', eval=FALSE}
 set.seed(777)
 fit.nnet.reg3 <- train(x = train.data[feature.list.reg], 
                      y = train.data$reg.cbrt / max(train.data$reg.cbrt),
@@ -654,6 +657,31 @@ fit.nnet.reg3 <- train(x = train.data[feature.list.reg],
                      trControl = tr.control,
                      tuneGrid = tune.grid.reg,
                      maxit = 400, MaxNWt = 8000,
+                     linout = T, trace = T
+                     )
+```
+
+
+```{r t1_model_fit7, results='hide'}
+set.seed(777)
+fit.nnet.cas4 <- train(x = train.data[feature.list.cas], 
+                     y = train.data$cas.cbrt / max(train.data$cas.cbrt),
+                     method = 'nnet',
+                     trControl = tr.control,
+                     tuneGrid = tune.grid.cas,
+                     maxit = 750, MaxNWt = 10000,
+                     linout = T, trace = T
+                     )
+```
+
+```{r t1_model_fit8, results='hide'}
+set.seed(777)
+fit.nnet.reg4 <- train(x = train.data[feature.list.reg],
+                     y = train.data$reg.cbrt / max(train.data$reg.cbrt),
+                     method = 'nnet',
+                     trControl = tr.control,
+                     tuneGrid = tune.grid.reg,
+                     maxit = 750, MaxNWt = 10000,
                      linout = T, trace = T
                      )
 ```
@@ -675,11 +703,12 @@ summary(resamples(list(Casual.Log = fit.nnet.cas1,
                        Casual.Cbrt = fit.nnet.cas2,
                        Registered.Cbrt = fit.nnet.reg2,
                        Casual.Cbrt2 = fit.nnet.cas3,
-                       Registered.Cbrt2 = fit.nnet.reg3)))
+                       Registered.Cbrt2 = fit.nnet.reg3,
+                       Casual.Cbrt4 = fit.nnet.cas4,
+                       Registered.Cbrt4 = fit.nnet.reg4)))
 ```
 
-
-Predicting:
+### Predicting
 
 ```{r t1_predict1, eval=FALSE}
 predict.nnet.cas1 <- 
@@ -692,13 +721,13 @@ predict.nnet.count1 <- expm1(predict.nnet.cas1) + expm1(predict.nnet.reg1)
 ```
 
 ```{r t1_predict2}
-predict.nnet.cas3 <- 
-    predict(fit.nnet.cas3, 
+predict.nnet.cas4 <- 
+    predict(fit.nnet.cas4, 
             newdata = train.data[feature.list.cas]) * max(train.data$cas.cbrt)
-predict.nnet.reg3 <- 
-    predict(fit.nnet.reg3, 
+predict.nnet.reg4 <- 
+    predict(fit.nnet.reg4, 
             newdata = train.data[feature.list.reg]) * max(train.data$reg.cbrt)
-predict.nnet.count3 <- (predict.nnet.cas3 ^ 3) + (predict.nnet.reg3 ^ 3)
+predict.nnet.count4 <- (predict.nnet.cas4 ^ 3) + (predict.nnet.reg4 ^ 3)
 ```
 
 
@@ -716,9 +745,9 @@ error.data1 <- train.data %>%
 ```
 
 ```{r t1_error_data2}
-error.data3 <- train.data %>%
-    mutate(predict.cas = predict.nnet.cas3 ^ 3, 
-           predict.reg = predict.nnet.reg3 ^ 3) %>%
+error.data4 <- train.data %>%
+    mutate(predict.cas = predict.nnet.cas4 ^ 3, 
+           predict.reg = predict.nnet.reg4 ^ 3) %>%
     mutate(error.cas = ((predict.cas - casual) / (casual + 1)) * 100,
            error.reg = ((predict.reg - registered) / (registered + 1)) * 100)
 
@@ -756,16 +785,27 @@ t1.g14 <- error.data3 %>%
     ggplot(aes(x = registered, y = error.reg)) +
     geom_point(alpha = 0.3) +
     ggtitle('Error Plot - Registered (CubeRoot)')
+
+t1.g15 <- error.data4 %>%
+    ggplot(aes(x = casual, y = error.cas)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Casual (CubeRoot)')
+    
+t1.g16 <- error.data4 %>% 
+    ggplot(aes(x = registered, y = error.reg)) +
+    geom_point(alpha = 0.3) +
+    ggtitle('Error Plot - Registered (CubeRoot)')
+
 ```
 
 ```{r t1_error_explore2}
-grid.arrange(t1.g13, t1.g14, ncol = 2)
+grid.arrange(t1.g15, t1.g16, ncol = 2)
 ```
 
 Lets check the effect of the variables on Error:
 
 ```{r t1_error_explore3, fig.height=6, fig.width=12}
-t1.g11 <- error.data3 %>% 
+t1.g17 <- error.data4 %>% 
     mutate(hour = factor(hour, levels = as.character(0:23))) %>%
     ggplot(aes(x = hour, y = error.cas)) +
     geom_point(alpha = 0.3) +
@@ -773,7 +813,7 @@ t1.g11 <- error.data3 %>%
     geom_abline(intercept = -50, slope = 0) +
     facet_wrap(~ day.type.name)
 
-t1.g12 <- error.data3 %>%
+t1.g18 <- error.data4 %>%
     mutate(hour = factor(hour, levels = as.character(0:23))) %>%
     ggplot(aes(x = hour, y = error.reg)) +
     geom_point(alpha = 0.3) +
@@ -783,7 +823,7 @@ t1.g12 <- error.data3 %>%
 ```
 
 ```{r t1_error_explore4, fig.height=12, fig.width=12}
-grid.arrange(t1.g11, t1.g12, nrow = 2)
+grid.arrange(t1.g17, t1.g18, nrow = 2)
 ```
 
 
@@ -814,10 +854,10 @@ predict.nnet.count.test <-
 
 ```{r sub_predict2}
 predict.nnet.cas.test <- 
-    predict(fit.nnet.cas3, 
+    predict(fit.nnet.cas4, 
             newdata = test.data[feature.list.cas.test]) * max(train.data$cas.cbrt)
 predict.nnet.reg.test <- 
-    predict(fit.nnet.reg3, 
+    predict(fit.nnet.reg4, 
             newdata = test.data[feature.list.reg.test]) * max(train.data$reg.cbrt)
 predict.nnet.count.test <- (predict.nnet.cas.test ^ 3) + (predict.nnet.reg.test ^ 3)
 ```
@@ -829,7 +869,7 @@ Creating Submission Files
 test.data$count <- predict.nnet.count.test
 
 test.data %>% select(datetime, count) %>%
-    write.csv(file = '../Output/submit_nnet_cv5_3.csv',
+    write.csv(file = '../Output/submit_nnet_cv5_4.csv',
               quote = F, row.names = F)
 ```
 
