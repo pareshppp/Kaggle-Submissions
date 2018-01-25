@@ -11,6 +11,8 @@ Find why the best and most experienced employees are leaving prematurely.
 
 ```{r, message=FALSE, warning=FALSE}
 library(tidyverse)
+library(ggcorrplot)
+library(caret)
 ```
 
 
@@ -33,22 +35,50 @@ Adding Employee Status
 hra.data$emp.status <- ifelse(hra.data$left == 1, 'Left', 'Retained')
 ```
 
+Adding Salary as number
+```{r}
+hra.data$salary.num <- hra.data$salary
+hra.data$salary.num[hra.data$salary == 'low'] <- 1
+hra.data$salary.num[hra.data$salary == 'medium'] <- 2
+hra.data$salary.num[hra.data$salary == 'high'] <- 3
+hra.data$salary.num <- as.integer(hra.data$salary.num)
+```
+
+
 Converting to Factors
 ```{r}
-hra.data[,c(-1, -2, -4)] <- lapply(hra.data[,c(-1, -2, -4)], factor)
+hra.data.fact <- hra.data
+hra.data.fact[,c(-1, -2, -4)] <- lapply(hra.data.fact[,c(-1, -2, -4)], factor)
 ```
 
 
 ##Exploration
 
 ```{r}
-glimpse(hra.data)
+glimpse(hra.data.fact)
 ```
 
 ```{r}
-summary(hra.data)
+summary(hra.data.fact)
 ```
 
+
+
+<br><br><br><html>
+###Correlation
+
+First lets check the correlation between features.
+
+```{r, fig.height=6, fig.width=6}
+g.corr <- hra.data %>% 
+    select(-c(9:11)) %>% cor() %>%
+    ggcorrplot(corr = ., method = 'circle', 
+                     type = 'full', lab = T, lab_size = 3)
+
+g.corr
+```
+
+Whether employees leave or stay is mostly decided by their satisfaction level.
 
 
 <br><br><br><html>
@@ -57,7 +87,7 @@ summary(hra.data)
 Distribution of Employees Retained vs Left
 
 ```{r}
-g1 <- hra.data %>% 
+g1 <- hra.data.fact %>% 
     ggplot(mapping = aes(x = emp.status)) +
     geom_bar() +
     labs(x = 'Employee Status',
@@ -97,17 +127,18 @@ Lets dig deeper.
 Lets plot satisfation vs last evaluation
 
 ```{r}
-g1.2 <- hra.data %>% 
+g1.2 <- hra.data.fact %>% 
     ggplot(mapping = aes(x = satisfaction_level, 
-                         y = last_evaluation)) +
-    geom_point(alpha = 0.3) +
+                         y = last_evaluation,
+                         color = time_spend_company)) +
+    geom_point(alpha = 0.5) +
     geom_abline(slope = 0, intercept = mean(hra.data$last_evaluation)) +
     geom_vline(xintercept = mean(hra.data$satisfaction_level)) +
     facet_wrap(~emp.status)
 g1.2
 ```
 
-There are 5 separate clusters correspoding to the 5 peaks in the previous graph. 
+There are 3 separate clusters correspoding to the 3 peaks in the previous graph for LEFT. 
 
 In the Left plot, there is group that had both high satisfaction and high evaluation, yet they still left.
 
@@ -120,7 +151,7 @@ Lets dig further.
 Plotting satisfation vs no. of projects and Average monthly hours
 
 ```{r}
-g1.3 <- hra.data %>%
+g1.3 <- hra.data.fact %>%
     ggplot(mapping = aes(x = satisfaction_level,
                          y = average_montly_hours,
                          color = number_project)) +
@@ -131,60 +162,182 @@ g1.3 <- hra.data %>%
 g1.3
 ```
 
-Again, we get similar clusters. Fo the Employees Left plot:
 
-Cluster 1: High Evaluation BUT too much work(High monthy hours + High no of projects) -> Low Satifaction -> Left  
-Cluster 2: Low Evaluation AND too less work(Low monthy hours + Low no of projects) -> Below Average Satifaction -> Left  
-Cluster 3: High Evaluation AND good amount of work(Above average monthy hours + Average no of projects) -> Above Average Satifaction -> Why Left?
+Again, we get similar clusters. For the Employees LEFT plot:
 
+Cluster 1: High Evaluation BUT too much work(High monthly hours + High no of projects) -> Low Satifaction -> Left  
+Cluster 2: Low Evaluation AND too less work(Low monthly hours + Low no of projects) -> Below Average Satifaction -> Left  
+Cluster 3: High Evaluation AND good amount of work(Above average monthly hours + Average no of projects) -> Above Average Satifaction -> Why Left?
 
+Cluster-1 & 3 have employees having 4-6 years of experience.
+
+Cluster-1 & 3 are the group of employees that the company should have retained. 
+
+We know Cluster-1 left because of too much work. 
 
 Why did Cluster-3 employees leave?
 
 
-<br><br><br><html>
-###Employee Experience
 
-Lets see distribution of Employee Status over Employee Experience.
+<br><br><br><html>
+
+Plotting satisfation vs salary vs emp.status
 
 ```{r}
-g2 <- hra.data %>%
-    ggplot(mapping = aes(x = time_spend_company, fill = emp.status)) +
-    geom_bar(position = 'dodge') +
-    labs(x = 'Employee Experience (Years)', 
-         y = 'Count',
-         fill = 'Employee Status',
-         title = 'Distribution of Employee Status over Employee Experience')
-g2
+g1.4 <- hra.data.fact %>% 
+    ggplot(mapping = aes(x = satisfaction_level,
+                         y = last_evaluation,
+                         color = time_spend_company)) +
+    geom_point(alpha = 0.5) +
+    facet_wrap(~emp.status + salary)
+g1.4
 ```
-
-Most of the employees that leave have spent 3 to 6 years at the company. 
-
-The most problematic is the 4-5 years range. The overall ratio of Left to Retained is 1:3. but, for 4 years its roughly 1:2; while for 5 years the no. of employees that left are more than those retained.
-
 
 
 <br><br><br><html>
-###Work Accident
 
-Lets see distribution of Employee Status over whether or not employee had some work accident.
+Plotting satisfation vs promotion vs emp.status
 
 ```{r}
-g3 <- hra.data %>%
-    ggplot(mapping = aes(x = Work_accident, fill = emp.status)) +
-    geom_bar(mapping = aes(y = ..count../sum(..count..)), 
-             position = 'dodge') +
-    labs(x = 'Work Accident', 
-         y = 'Count',
-         fill = 'Employee Status',
-         title = 'Distribution of Employee Status over Work Accident')
-g3
+g1.5 <- hra.data.fact %>% 
+    ggplot(mapping = aes(x = satisfaction_level,
+                         y = last_evaluation,
+                         color = time_spend_company)) +
+    geom_point(alpha = 0.5) +
+    facet_wrap(~emp.status + promotion_last_5years)
+g1.5
 ```
 
-It does not look like Work Accident had much effect over employees leaving. Rather, we can say that employees who had a work accident are more likely to stay than leave.
+
+<br><br><br><html>
+
+Plotting satisfation vs work_accident vs emp.status
+
+```{r}
+g1.6 <- hra.data.fact %>% 
+    ggplot(mapping = aes(x = satisfaction_level,
+                         y = last_evaluation,
+                         color = time_spend_company)) +
+    geom_point(alpha = 0.5) +
+    facet_wrap(~emp.status + Work_accident)
+g1.6
+```
+
+Here we can see that among the employees that left, hardly anyone had high salary and almost nobody got promoted in last 5 years, especially in Cluster 1 & 3. 
+
+Also, all three clusters in LEFT had employees who had a work accident.
+
+That may be why they left.
 
 
 
+<br><br><br><html>
+###Correlation - Best Employees
 
+Lets again check the correlation between features only for the best employees.
+
+```{r, fig.height=6, fig.width=6}
+g.corr2 <- hra.data %>% select(-c(9:11)) %>%
+    filter(last_evaluation >= 0.75, 
+           average_montly_hours >= 210, 
+           time_spend_company >= 4) %>%
+    cor() %>%
+    ggcorrplot(corr = ., method = 'circle', 
+                     type = 'full', lab = T, lab_size = 3)
+
+g.corr2
+```
+
+The best employees that left either had low satisfaction level, too many projects and high monthly hours or had low salary didn't get promoted in last 5 years. Some might have left because of a work accident.
+
+
+##Modeling
+
+Lets use the existing data to predict which employees might leave next. We will only use the best employees for our model.
+
+###Best Employees
+
+```{r}
+hra.data.best <- hra.data %>%
+    filter(last_evaluation >= 0.75, 
+           average_montly_hours >= 210, 
+           time_spend_company >= 4)
+
+hra.data.best[c(9:11)] <- lapply(hra.data.best[c(9:11)], factor)
+
+glimpse(hra.data.best)
+```
+
+###Feature List
+
+```{r}
+feature.list <- c(1:6, 8, 10, 12)
+names(hra.data.best[feature.list])
+```
+
+
+
+###Control Parameters
+
+```{r}
+tr.control <- trainControl(method = 'cv', number = 5, verboseIter = T, 
+                           classProbs = T, allowParallel = T)
+```
+
+
+###Model Fitting
+
+Naive bayes:
+
+```{r}
+fit.nb <- train(x = hra.data.best[feature.list], 
+                y = hra.data.best$emp.status, 
+                method = 'nb', metric = 'Kappa',
+                trControl = tr.control)
+```
+
+
+Decsion Trees:
+
+```{r}
+fit.rpart <- train(x = hra.data.best[feature.list], 
+                y = hra.data.best$emp.status, 
+                method = 'rpart', metric = 'Kappa',
+                trControl = tr.control)
+```
+
+
+###Resamples
+
+```{r}
+summary(resamples(list(NB = fit.nb, DT = fit.rpart)))
+```
+
+
+###Prediction
+
+```{r}
+prediction <- predict(fit.rpart, newdata = hra.data.best)
+prediction.prob <- predict(fit.rpart, newdata = hra.data.best, type = 'prob')
+```
+
+
+###Confusion Matrix
+
+```{r}
+confusionMatrix(data = prediction, reference = hra.data.best$emp.status)
+```
+
+###Insights
+
+```{r}
+hra.data.best <- cbind(hra.data.best, prediction.prob)
+
+g.insight <- hra.data.best %>%
+    ggplot(mapping = aes(x = Left, y = last_evaluation)) +
+    geom_point()
+
+g.insight
+```
 
 
